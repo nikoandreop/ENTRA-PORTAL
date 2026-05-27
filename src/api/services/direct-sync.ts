@@ -37,11 +37,25 @@ export async function syncTenant(tenantId: string): Promise<{ users: number; gro
   let clientSecret: string;
   try {
     clientSecret = decrypt(tenant.client_secret_encrypted, ENCRYPTION_KEY);
-  } catch {
+  } catch (decryptErr) {
+    logger.warn('Could not decrypt client secret, trying raw value', { tenantId, error: (decryptErr as Error).message });
     clientSecret = tenant.client_secret_encrypted;
   }
 
-  const graphClient = getGraphClient(tenant.entra_directory_id, tenant.client_id, clientSecret);
+  let graphClient: Client;
+  try {
+    graphClient = getGraphClient(tenant.entra_directory_id, tenant.client_id, clientSecret);
+    await graphClient.api('/organization').select('id').get();
+  } catch (authErr: any) {
+    const msg = authErr?.message || String(authErr);
+    if (msg.includes('Invalid client secret') || msg.includes('AADSTS7000215')) {
+      throw new Error(`Authentication failed: Invalid client secret for tenant ${tenant.domain}. The stored credentials may be incorrect — try re-entering them.`);
+    }
+    if (msg.includes('AADSTS700016')) {
+      throw new Error(`Authentication failed: Invalid client ID for tenant ${tenant.domain}. Check the Application (Client) ID.`);
+    }
+    throw new Error(`Authentication failed for ${tenant.domain}: ${msg}`);
+  }
   const db = getDb();
 
   logger.info('Starting direct sync', { tenantId, domain: tenant.domain });

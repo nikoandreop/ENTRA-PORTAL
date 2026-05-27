@@ -39,30 +39,29 @@ userRouter.get('/', authorize('users:read'), async (req: Request, res: Response,
     const query = userSearchSchema.parse(req.query);
     const offset = (Number(query.page) - 1) * Number(query.pageSize);
 
-    let sql = 'SELECT * FROM entra_users WHERE tenant_id = $1';
+    let where = 'WHERE tenant_id = $1';
     const params: any[] = [tenantId];
     let paramIdx = 1;
 
     if (query.search) {
-      sql += ` AND (display_name LIKE $${++paramIdx} OR user_principal_name LIKE $${++paramIdx} OR mail LIKE $${++paramIdx})`;
+      where += ` AND (display_name ILIKE $${++paramIdx} OR user_principal_name ILIKE $${++paramIdx} OR mail ILIKE $${++paramIdx})`;
       params.push(`%${query.search}%`, `%${query.search}%`, `%${query.search}%`);
     }
-    if (query.department) { sql += ` AND department = $${++paramIdx}`; params.push(query.department); }
-    if (query.accountEnabled !== undefined) { sql += ` AND account_enabled = $${++paramIdx}`; params.push(query.accountEnabled === 'true'); }
-    if (query.mfaEnabled !== undefined) { sql += ` AND mfa_enabled = $${++paramIdx}`; params.push(query.mfaEnabled === 'true'); }
-    if (query.riskLevel) { sql += ` AND risk_level = $${++paramIdx}`; params.push(query.riskLevel); }
+    if (query.department) { where += ` AND department = $${++paramIdx}`; params.push(query.department); }
+    if (query.accountEnabled !== undefined) { where += ` AND account_enabled = $${++paramIdx}`; params.push(query.accountEnabled === 'true'); }
+    if (query.mfaEnabled !== undefined) { where += ` AND mfa_enabled = $${++paramIdx}`; params.push(query.mfaEnabled === 'true'); }
+    if (query.riskLevel) { where += ` AND risk_level = $${++paramIdx}`; params.push(query.riskLevel); }
+
+    const total = await queryCount(`SELECT COUNT(*) as total FROM entra_users ${where}`, params);
 
     const allowedSorts = ['display_name', 'user_principal_name', 'department', 'last_sign_in', 'risk_level'];
     const sortBy = allowedSorts.includes(query.sortBy) ? query.sortBy : 'display_name';
-    sql += ` ORDER BY ${sortBy} ${query.sortOrder}`;
 
-    const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) as total');
-    const total = await queryCount(countSql, params);
-
-    sql += ` LIMIT $${++paramIdx} OFFSET $${++paramIdx}`;
-    params.push(Number(query.pageSize), offset);
-
-    const users = await queryAll(sql, params);
+    const listParams = [...params, Number(query.pageSize), offset];
+    const users = await queryAll(
+      `SELECT * FROM entra_users ${where} ORDER BY ${sortBy} ${query.sortOrder} LIMIT $${++paramIdx} OFFSET $${++paramIdx}`,
+      listParams,
+    );
 
     res.json({
       success: true,
