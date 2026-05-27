@@ -316,8 +316,10 @@ async function seedDefaultAdmin(): Promise<void> {
   const result = await pool.query("SELECT id FROM dashboard_users WHERE role = 'superadmin' LIMIT 1");
   if (result.rows.length > 0) return;
 
-  const bcrypt = await import('bcryptjs');
-  const { v4: uuidv4 } = await import('uuid');
+  const bcryptModule = await import('bcryptjs');
+  const bcrypt = bcryptModule.default || bcryptModule;
+  const uuidModule = await import('uuid');
+  const uuidv4 = uuidModule.v4;
   const defaultPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'EntraPortal!2024';
   const hash = bcrypt.hashSync(defaultPassword, 12);
 
