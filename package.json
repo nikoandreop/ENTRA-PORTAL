@@ -1,0 +1,29 @@
+{
+  "name": "entra-portal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Enterprise Entra ID RMM Platform - MSP Multi-Tenant Management",
+  "workspaces": [
+    "src/api",
+    "src/agent",
+    "src/shared",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:api": "npm -w src/api run dev",
+    "dev:agent": "npm -w src/agent run dev",
+    "dev:frontend": "npm -w frontend run dev",
+    "build": "npm run build --workspaces",
+    "lint": "eslint . --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "jest --passWithNoTests",
+    "docker:build": "docker compose -f docker/docker-compose.yml build",
+    "docker:up": "docker compose -f docker/docker-compose.yml up -d",
+    "docker:down": "docker compose -f docker/docker-compose.yml down"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3"
+  }
+}

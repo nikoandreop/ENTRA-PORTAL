@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-config
+  namespace: entra-portal-system
+data:
+  NODE_ENV: "production"
+  CORS_ORIGIN: "https://portal.example.com"
+  LOG_LEVEL: "info"
+  DB_DIR: "/data"

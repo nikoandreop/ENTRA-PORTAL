@@ -1,0 +1,57 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "3001:3001"
+      - "3002:3002"
+    environment:
+      - NODE_ENV=development
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production-use-64-char-random}
+      - AGENT_JWT_SECRET=${AGENT_JWT_SECRET:-change-agent-secret-in-production}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-change-this-32-char-encryption-key!}
+      - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-EntraPortal!2024}
+      - CORS_ORIGIN=http://localhost:5173
+      - LOG_LEVEL=debug
+      - DB_DIR=/data
+    volumes:
+      - api-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  agent-demo:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.agent
+    environment:
+      - TENANT_ID=demo-tenant-001
+      - AGENT_ID=agent-demo-001
+      - PANEL_WS_URL=ws://api:3002
+      - AGENT_TOKEN=${AGENT_JWT_SECRET:-change-agent-secret-in-production}
+      - GRAPH_TENANT_ID=${DEMO_GRAPH_TENANT_ID:-}
+      - GRAPH_CLIENT_ID=${DEMO_GRAPH_CLIENT_ID:-}
+      - GRAPH_CLIENT_SECRET=${DEMO_GRAPH_CLIENT_SECRET:-}
+      - SYNC_INTERVAL_MINUTES=15
+      - LOG_LEVEL=debug
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  api-data:

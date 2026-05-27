@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: entra-portal-system
+  labels:
+    app.kubernetes.io/part-of: entra-portal
+    app.kubernetes.io/managed-by: entra-portal

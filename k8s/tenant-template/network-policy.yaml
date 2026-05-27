@@ -1,0 +1,42 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-network-policy
+  namespace: tenant-TENANT_ID
+  labels:
+    entra-portal/tenant-id: TENANT_ID
+spec:
+  podSelector:
+    matchLabels:
+      app: entra-portal-agent
+  policyTypes:
+    - Ingress
+    - Egress
+  # No ingress allowed - agents initiate all connections
+  ingress: []
+  egress:
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Allow connection to central panel WebSocket (within cluster)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: entra-portal
+          podSelector:
+            matchLabels:
+              app: entra-portal-api
+      ports:
+        - port: 3002
+          protocol: TCP
+    # Allow connection to Microsoft Graph API
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 443
+          protocol: TCP

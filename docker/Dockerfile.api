@@ -1,0 +1,43 @@
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+COPY package.json ./
+COPY src/shared/package.json src/shared/
+COPY src/api/package.json src/api/
+
+RUN npm install --workspace=src/shared --workspace=src/api --ignore-scripts
+
+COPY src/shared/ src/shared/
+COPY src/api/ src/api/
+
+RUN npm run build --workspace=src/shared && \
+    npm run build --workspace=src/api
+
+FROM node:20-alpine AS runner
+
+RUN apk add --no-cache openssl wget tini && \
+    addgroup -g 1001 -S entra && \
+    adduser -S entra -u 1001
+
+WORKDIR /app
+
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/src/shared/dist ./src/shared/dist
+COPY --from=builder /app/src/shared/package.json ./src/shared/
+COPY --from=builder /app/src/api/dist ./src/api/dist
+COPY --from=builder /app/src/api/package.json ./src/api/
+COPY --from=builder /app/src/api/node_modules ./src/api/node_modules
+
+RUN mkdir -p /data /var/log/entra-portal && \
+    chown -R entra:entra /data /var/log/entra-portal
+
+USER entra
+
+EXPOSE 3001 3002
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+  CMD wget -q --spider http://localhost:3001/api/health || exit 1
+
+ENTRYPOINT ["tini", "--"]
+CMD ["node", "src/api/dist/server.js"]

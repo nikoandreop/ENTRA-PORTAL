@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: entra-portal-system
+  labels:
+    app: entra-portal-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: entra-portal-api
+  template:
+    metadata:
+      labels:
+        app: entra-portal-api
+    spec:
+      serviceAccountName: entra-portal-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: api
+          image: entra-portal/api:latest
+          ports:
+            - name: http
+              containerPort: 3001
+            - name: ws
+              containerPort: 3002
+          envFrom:
+            - configMapRef:
+                name: api-config
+            - secretRef:
+                name: api-secrets
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: certs
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: api-data
+        - name: certs
+          secret:
+            secretName: api-tls-certs
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: entra-portal-api
+  namespace: entra-portal-system
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: api-data
+  namespace: entra-portal-system
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

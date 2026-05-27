@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-TENANT_ID
+  labels:
+    app.kubernetes.io/part-of: entra-portal
+    app.kubernetes.io/component: tenant-agent
+    entra-portal/tenant-id: TENANT_ID
+    entra-portal/tenant-name: TENANT_NAME

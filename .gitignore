@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+frontend/dist/
+
+# Data
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Certificates (sensitive!)
+certs/
+*.key
+*.crt
+*.csr
+*.pem
+*.p12
+*.srl
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker/data/
+
+# Kubernetes generated tenant manifests
+k8s/tenants/
+
+# Logs
+*.log
+logs/
+
+# Coverage
+coverage/
