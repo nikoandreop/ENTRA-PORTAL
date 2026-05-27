@@ -10,6 +10,7 @@ import {
   Settings,
   FileText,
   ClipboardList,
+  Monitor,
 } from 'lucide-react';
 import { useTenantStore } from '@/store/tenant';
 
@@ -25,6 +26,7 @@ const tenantNavigation = [
   { name: 'Groups', path: 'groups', icon: Users },
   { name: 'Policies', path: 'policies', icon: Shield },
   { name: 'Alerts', path: 'alerts', icon: Bell },
+  { name: 'Devices', path: 'devices', icon: Monitor },
   { name: 'Audit Trail', path: 'audit', icon: FileText },
 ];
 

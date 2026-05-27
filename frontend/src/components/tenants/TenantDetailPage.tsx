@@ -5,7 +5,7 @@ import { getTenant } from '@/services/tenants';
 import { useTenantStore } from '@/store/tenant';
 import { statusColor, formatDate, timeAgo } from '@/utils/formatters';
 import { cn } from '@/utils/cn';
-import { Users, Shield, Bell, FileText, Key, Activity, ArrowLeft, ClipboardList } from 'lucide-react';
+import { Users, Shield, Bell, FileText, Key, Activity, ArrowLeft, ClipboardList, Monitor } from 'lucide-react';
 
 export function TenantDetailPage() {
   const { tenantId } = useParams<{ tenantId: string }>();
@@ -29,6 +29,7 @@ export function TenantDetailPage() {
     { name: 'Groups', path: 'groups', icon: Users, count: tenant.groupCount, description: 'Manage security and M365 groups' },
     { name: 'Conditional Access', path: 'policies', icon: Shield, count: null, description: 'View and manage CA policies' },
     { name: 'Security Alerts', path: 'alerts', icon: Bell, count: tenant.alertCount, description: 'Monitor security events' },
+    { name: 'Intune Devices', path: 'devices', icon: Monitor, count: null, description: 'Manage endpoints and compliance' },
     { name: 'Audit Trail', path: 'audit', icon: ClipboardList, count: null, description: 'Track all operator actions' },
   ];
 

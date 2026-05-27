@@ -14,6 +14,7 @@ import { PolicyListPage } from '@/components/policies/PolicyListPage';
 import { AlertListPage } from '@/components/alerts/AlertListPage';
 import { AgentListPage } from '@/components/settings/AgentListPage';
 import { AuditTrailPage } from '@/components/common/AuditTrailPage';
+import { DeviceListPage } from '@/components/intune/DeviceListPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -43,6 +44,7 @@ export function App() {
         <Route path="tenants/:tenantId/groups" element={<GroupListPage />} />
         <Route path="tenants/:tenantId/policies" element={<PolicyListPage />} />
         <Route path="tenants/:tenantId/alerts" element={<AlertListPage />} />
+        <Route path="tenants/:tenantId/devices" element={<DeviceListPage />} />
         <Route path="tenants/:tenantId/audit" element={<AuditTrailPage />} />
         <Route path="agents" element={<AgentListPage />} />
         <Route path="audit" element={<AuditTrailPage />} />

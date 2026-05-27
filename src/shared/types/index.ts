@@ -4,3 +4,4 @@ export * from './agent.js';
 export * from './auth.js';
 export * from './entra.js';
 export * from './api.js';
+export * from './intune.js';

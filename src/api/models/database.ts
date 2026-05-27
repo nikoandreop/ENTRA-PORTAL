@@ -247,6 +247,69 @@ const migrations = [
       CREATE INDEX IF NOT EXISTS idx_dashboard_users_entra_oid ON dashboard_users(entra_oid);
     `,
   },
+  {
+    name: '002_intune_tables',
+    sql: `
+      CREATE TABLE IF NOT EXISTS managed_devices (
+        id UUID PRIMARY KEY,
+        tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        entra_device_id TEXT NOT NULL,
+        device_name TEXT NOT NULL,
+        managed_device_owner_type TEXT NOT NULL DEFAULT 'unknown',
+        operating_system TEXT NOT NULL DEFAULT '',
+        os_version TEXT NOT NULL DEFAULT '',
+        compliance_state TEXT NOT NULL DEFAULT 'unknown',
+        is_encrypted BOOLEAN NOT NULL DEFAULT FALSE,
+        model TEXT NOT NULL DEFAULT '',
+        manufacturer TEXT NOT NULL DEFAULT '',
+        serial_number TEXT NOT NULL DEFAULT '',
+        user_principal_name TEXT NOT NULL DEFAULT '',
+        user_display_name TEXT NOT NULL DEFAULT '',
+        last_sync_date_time TIMESTAMPTZ,
+        enrolled_date_time TIMESTAMPTZ,
+        management_agent TEXT NOT NULL DEFAULT '',
+        device_registration_state TEXT NOT NULL DEFAULT '',
+        is_supervised BOOLEAN NOT NULL DEFAULT FALSE,
+        synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(tenant_id, entra_device_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS device_compliance_policies (
+        id UUID PRIMARY KEY,
+        tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        entra_policy_id TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        description TEXT,
+        platform TEXT NOT NULL DEFAULT 'all',
+        assignments INTEGER NOT NULL DEFAULT 0,
+        last_modified_date_time TIMESTAMPTZ,
+        created_date_time TIMESTAMPTZ,
+        synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(tenant_id, entra_policy_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS device_configurations (
+        id UUID PRIMARY KEY,
+        tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        entra_config_id TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        description TEXT,
+        platform TEXT NOT NULL DEFAULT 'all',
+        assignments INTEGER NOT NULL DEFAULT 0,
+        last_modified_date_time TIMESTAMPTZ,
+        created_date_time TIMESTAMPTZ,
+        synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(tenant_id, entra_config_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_managed_devices_tenant ON managed_devices(tenant_id);
+      CREATE INDEX IF NOT EXISTS idx_managed_devices_compliance ON managed_devices(compliance_state);
+      CREATE INDEX IF NOT EXISTS idx_managed_devices_os ON managed_devices(operating_system);
+      CREATE INDEX IF NOT EXISTS idx_managed_devices_upn ON managed_devices(user_principal_name);
+      CREATE INDEX IF NOT EXISTS idx_device_compliance_policies_tenant ON device_compliance_policies(tenant_id);
+      CREATE INDEX IF NOT EXISTS idx_device_configurations_tenant ON device_configurations(tenant_id);
+    `,
+  },
 ];
 
 async function seedDefaultAdmin(): Promise<void> {

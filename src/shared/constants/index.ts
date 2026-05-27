@@ -33,4 +33,8 @@ export const REQUIRED_GRAPH_PERMISSIONS = [
   'Directory.Read.All',
   'UserAuthenticationMethod.Read.All',
   'RoleManagement.Read.All',
+  'DeviceManagementManagedDevices.Read.All',
+  'DeviceManagementManagedDevices.ReadWrite.All',
+  'DeviceManagementConfiguration.Read.All',
+  'DeviceManagementServiceConfig.Read.All',
 ] as const;

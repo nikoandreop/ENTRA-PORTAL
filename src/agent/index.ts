@@ -4,6 +4,7 @@ import { CommandDispatcher } from './handlers/dispatcher.js';
 import { UserHandler } from './handlers/user-handler.js';
 import { GroupHandler } from './handlers/group-handler.js';
 import { PolicyHandler } from './handlers/policy-handler.js';
+import { IntuneHandler } from './handlers/intune-handler.js';
 import { SyncScheduler } from './services/sync-scheduler.js';
 import { logger } from './services/logger.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -42,6 +43,7 @@ async function start() {
   const userHandler = new UserHandler(graphClient);
   const groupHandler = new GroupHandler(graphClient);
   const policyHandler = new PolicyHandler(graphClient);
+  const intuneHandler = new IntuneHandler(graphClient);
 
   dispatcher.register('sync', async (payload) => {
     const modules = (payload as any).modules || ['users', 'groups'];
@@ -51,6 +53,9 @@ async function start() {
         case 'users': results.users = await userHandler.listUsers(); break;
         case 'groups': results.groups = await groupHandler.listGroups(); break;
         case 'policies': results.policies = await policyHandler.listPolicies(); break;
+        case 'devices': results.devices = await intuneHandler.listManagedDevices(); break;
+        case 'compliancePolicies': results.compliancePolicies = await intuneHandler.listCompliancePolicies(); break;
+        case 'configProfiles': results.configProfiles = await intuneHandler.listConfigurationProfiles(); break;
       }
     }
     return results;
@@ -88,6 +93,22 @@ async function start() {
       case 'list': return policyHandler.listPolicies();
       case 'get': return policyHandler.getPolicy(params.policyId);
       default: throw new Error(`Unknown policy action: ${action}`);
+    }
+  });
+
+  dispatcher.register('intuneAction', async (payload) => {
+    const { action, ...params } = payload as any;
+    switch (action) {
+      case 'listDevices': return intuneHandler.listManagedDevices(params.filter);
+      case 'getDevice': return intuneHandler.getDevice(params.deviceId);
+      case 'syncDevice': return intuneHandler.syncDevice(params.deviceId);
+      case 'rebootDevice': return intuneHandler.rebootDevice(params.deviceId);
+      case 'wipeDevice': return intuneHandler.wipeDevice(params.deviceId, params.keepEnrollmentData);
+      case 'retireDevice': return intuneHandler.retireDevice(params.deviceId);
+      case 'listCompliancePolicies': return intuneHandler.listCompliancePolicies();
+      case 'listConfigProfiles': return intuneHandler.listConfigurationProfiles();
+      case 'getDeviceCompliance': return intuneHandler.getDeviceComplianceStatus(params.deviceId);
+      default: throw new Error(`Unknown Intune action: ${action}`);
     }
   });
 

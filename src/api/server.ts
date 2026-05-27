@@ -17,6 +17,7 @@ import { alertRouter } from './routes/alerts.js';
 import { auditRouter } from './routes/audit.js';
 import { agentRouter } from './routes/agents.js';
 import { dashboardRouter } from './routes/dashboard.js';
+import { intuneRouter } from './routes/intune.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { requestLogger } from './middleware/request-logger.js';
 import { API_PORT, WS_PORT, RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX_REQUESTS } from '../shared/constants/index.js';
@@ -76,6 +77,7 @@ app.use('/api/tenants/:tenantId/policies', policyRouter);
 app.use('/api/tenants/:tenantId/alerts', alertRouter);
 app.use('/api/tenants/:tenantId/audit', auditRouter);
 app.use('/api/tenants/_/audit', auditRouter);
+app.use('/api/tenants/:tenantId/intune', intuneRouter);
 app.use('/api/agents', agentRouter);
 app.use('/api/dashboard', dashboardRouter);
 
