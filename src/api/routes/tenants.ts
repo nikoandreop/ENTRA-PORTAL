@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
-import { getDb } from '../models/database.js';
+import { queryOne, queryAll, queryCount, execute } from '../models/query.js';
 import { authenticate, authorize, requireTenantAccess } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { AppError } from '../middleware/error-handler.js';
@@ -36,30 +36,31 @@ const tenantUpdateSchema = z.object({
 
 tenantRouter.use(authenticate);
 
-tenantRouter.get('/', authorize('tenants:read'), (req: Request, res: Response, next: NextFunction) => {
+tenantRouter.get('/', authorize('tenants:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const db = getDb();
     const { search, status, page = '1', pageSize = '25' } = req.query;
     const offset = (Number(page) - 1) * Number(pageSize);
 
-    let query = 'SELECT t.*, COUNT(DISTINCT eu.id) as user_count, COUNT(DISTINCT eg.id) as group_count, COUNT(DISTINCT sa.id) as alert_count FROM tenants t LEFT JOIN entra_users eu ON eu.tenant_id = t.id LEFT JOIN entra_groups eg ON eg.tenant_id = t.id LEFT JOIN security_alerts sa ON sa.tenant_id = t.id AND sa.status = \'new\'';
+    let query = `SELECT t.*, COUNT(DISTINCT eu.id) as user_count, COUNT(DISTINCT eg.id) as group_count, COUNT(DISTINCT sa.id) as alert_count FROM tenants t LEFT JOIN entra_users eu ON eu.tenant_id = t.id LEFT JOIN entra_groups eg ON eg.tenant_id = t.id LEFT JOIN security_alerts sa ON sa.tenant_id = t.id AND sa.status = 'new'`;
     const params: any[] = [];
     const conditions: string[] = [];
+    let paramIdx = 0;
 
     if (req.user!.role !== 'superadmin') {
       const accessibleTenants = req.user!.tenantAccess;
       if (!accessibleTenants.includes('*')) {
-        conditions.push(`t.id IN (${accessibleTenants.map(() => '?').join(',')})`);
+        const placeholders = accessibleTenants.map(() => `$${++paramIdx}`).join(',');
+        conditions.push(`t.id IN (${placeholders})`);
         params.push(...accessibleTenants);
       }
     }
 
     if (search) {
-      conditions.push('(t.name LIKE ? OR t.domain LIKE ?)');
+      conditions.push(`(t.name LIKE $${++paramIdx} OR t.domain LIKE $${++paramIdx})`);
       params.push(`%${search}%`, `%${search}%`);
     }
     if (status) {
-      conditions.push('t.status = ?');
+      conditions.push(`t.status = $${++paramIdx}`);
       params.push(status);
     }
 
@@ -67,12 +68,12 @@ tenantRouter.get('/', authorize('tenants:read'), (req: Request, res: Response, n
     query += ' GROUP BY t.id ORDER BY t.name';
 
     const countQuery = `SELECT COUNT(*) as total FROM tenants t${conditions.length > 0 ? ' WHERE ' + conditions.join(' AND ') : ''}`;
-    const total = (db.prepare(countQuery).get(...params) as any).total;
+    const total = await queryCount(countQuery, params);
 
-    query += ' LIMIT ? OFFSET ?';
+    query += ` LIMIT $${++paramIdx} OFFSET $${++paramIdx}`;
     params.push(Number(pageSize), offset);
 
-    const tenants = db.prepare(query).all(...params);
+    const tenants = await queryAll(query, params);
 
     res.json({
       success: true,
@@ -83,10 +84,10 @@ tenantRouter.get('/', authorize('tenants:read'), (req: Request, res: Response, n
         entraDirectoryId: t.entra_directory_id,
         status: t.status,
         agentStatus: t.agent_status,
-        config: JSON.parse(t.config),
-        userCount: t.user_count,
-        groupCount: t.group_count,
-        alertCount: t.alert_count,
+        config: typeof t.config === 'string' ? JSON.parse(t.config) : t.config,
+        userCount: Number(t.user_count),
+        groupCount: Number(t.group_count),
+        alertCount: Number(t.alert_count),
         lastSyncAt: t.last_sync_at,
         createdAt: t.created_at,
       })),
@@ -102,15 +103,14 @@ tenantRouter.get('/', authorize('tenants:read'), (req: Request, res: Response, n
   }
 });
 
-tenantRouter.get('/:tenantId', authenticate, authorize('tenants:read'), requireTenantAccess, (req: Request, res: Response, next: NextFunction) => {
+tenantRouter.get('/:tenantId', authenticate, authorize('tenants:read'), requireTenantAccess, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const db = getDb();
-    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.tenantId) as any;
+    const tenant = await queryOne('SELECT * FROM tenants WHERE id = $1', [req.params.tenantId]);
     if (!tenant) throw new AppError(404, 'TENANT_NOT_FOUND', 'Tenant not found');
 
-    const userCount = (db.prepare('SELECT COUNT(*) as c FROM entra_users WHERE tenant_id = ?').get(tenant.id) as any).c;
-    const groupCount = (db.prepare('SELECT COUNT(*) as c FROM entra_groups WHERE tenant_id = ?').get(tenant.id) as any).c;
-    const alertCount = (db.prepare('SELECT COUNT(*) as c FROM security_alerts WHERE tenant_id = ? AND status = \'new\'').get(tenant.id) as any).c;
+    const userCount = await queryCount('SELECT COUNT(*) as total FROM entra_users WHERE tenant_id = $1', [tenant.id]);
+    const groupCount = await queryCount('SELECT COUNT(*) as total FROM entra_groups WHERE tenant_id = $1', [tenant.id]);
+    const alertCount = await queryCount(`SELECT COUNT(*) as total FROM security_alerts WHERE tenant_id = $1 AND status = 'new'`, [tenant.id]);
 
     res.json({
       success: true,
@@ -121,7 +121,7 @@ tenantRouter.get('/:tenantId', authenticate, authorize('tenants:read'), requireT
         entraDirectoryId: tenant.entra_directory_id,
         status: tenant.status,
         agentStatus: tenant.agent_status,
-        config: JSON.parse(tenant.config),
+        config: typeof tenant.config === 'string' ? JSON.parse(tenant.config) : tenant.config,
         userCount,
         groupCount,
         alertCount,
@@ -135,13 +135,12 @@ tenantRouter.get('/:tenantId', authenticate, authorize('tenants:read'), requireT
   }
 });
 
-tenantRouter.post('/', authorize('tenants:onboard'), validate(tenantOnboardSchema), (req: Request, res: Response, next: NextFunction) => {
+tenantRouter.post('/', authorize('tenants:onboard'), validate(tenantOnboardSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const db = getDb();
     const data = req.body;
     const id = uuidv4();
 
-    const existing = db.prepare('SELECT id FROM tenants WHERE domain = ? OR entra_directory_id = ?').get(data.domain, data.entraDirectoryId);
+    const existing = await queryOne('SELECT id FROM tenants WHERE domain = $1 OR entra_directory_id = $2', [data.domain, data.entraDirectoryId]);
     if (existing) throw new AppError(409, 'TENANT_EXISTS', 'Tenant with this domain or directory ID already exists');
 
     const encryptedSecret = encrypt(data.clientSecret, ENCRYPTION_KEY);
@@ -158,11 +157,12 @@ tenantRouter.post('/', authorize('tenants:onboard'), validate(tenantOnboardSchem
       retentionDays: DEFAULT_RETENTION_DAYS,
     };
 
-    db.prepare(
-      'INSERT INTO tenants (id, name, domain, entra_directory_id, client_id, client_secret_encrypted, status, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(id, data.name, data.domain, data.entraDirectoryId, data.clientId, encryptedSecret, 'onboarding', JSON.stringify(config));
+    await execute(
+      'INSERT INTO tenants (id, name, domain, entra_directory_id, client_id, client_secret_encrypted, status, config) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+      [id, data.name, data.domain, data.entraDirectoryId, data.clientId, encryptedSecret, 'onboarding', JSON.stringify(config)],
+    );
 
-    auditFromRequest(req, 'tenant', 'tenant.onboarded', {
+    await auditFromRequest(req, 'tenant', 'tenant.onboarded', {
       tenantId: id,
       targetResources: [id, data.domain],
       details: { name: data.name, domain: data.domain, enabledModules: data.enabledModules },
@@ -178,31 +178,31 @@ tenantRouter.post('/', authorize('tenants:onboard'), validate(tenantOnboardSchem
   }
 });
 
-tenantRouter.put('/:tenantId', authorize('tenants:write'), requireTenantAccess, validate(tenantUpdateSchema), (req: Request, res: Response, next: NextFunction) => {
+tenantRouter.put('/:tenantId', authorize('tenants:write'), requireTenantAccess, validate(tenantUpdateSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const db = getDb();
-    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.tenantId) as any;
+    const tenant = await queryOne('SELECT * FROM tenants WHERE id = $1', [req.params.tenantId]);
     if (!tenant) throw new AppError(404, 'TENANT_NOT_FOUND', 'Tenant not found');
 
     const updates: string[] = [];
     const params: any[] = [];
+    let paramIdx = 0;
 
-    if (req.body.name) { updates.push('name = ?'); params.push(req.body.name); }
-    if (req.body.status) { updates.push('status = ?'); params.push(req.body.status); }
+    if (req.body.name) { updates.push(`name = $${++paramIdx}`); params.push(req.body.name); }
+    if (req.body.status) { updates.push(`status = $${++paramIdx}`); params.push(req.body.status); }
     if (req.body.config) {
-      const existing = JSON.parse(tenant.config);
+      const existing = typeof tenant.config === 'string' ? JSON.parse(tenant.config) : tenant.config;
       const merged = { ...existing, ...req.body.config };
-      updates.push('config = ?');
+      updates.push(`config = $${++paramIdx}`);
       params.push(JSON.stringify(merged));
     }
 
     if (updates.length > 0) {
-      updates.push('updated_at = datetime(\'now\')');
+      updates.push('updated_at = NOW()');
       params.push(req.params.tenantId);
-      db.prepare(`UPDATE tenants SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+      await execute(`UPDATE tenants SET ${updates.join(', ')} WHERE id = $${++paramIdx}`, params);
     }
 
-    auditFromRequest(req, 'tenant', 'tenant.updated', {
+    await auditFromRequest(req, 'tenant', 'tenant.updated', {
       tenantId: req.params.tenantId,
       targetResources: [req.params.tenantId],
       details: { changes: req.body },
@@ -214,15 +214,14 @@ tenantRouter.put('/:tenantId', authorize('tenants:write'), requireTenantAccess, 
   }
 });
 
-tenantRouter.delete('/:tenantId', authorize('tenants:write'), requireTenantAccess, (req: Request, res: Response, next: NextFunction) => {
+tenantRouter.delete('/:tenantId', authorize('tenants:write'), requireTenantAccess, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const db = getDb();
-    const tenant = db.prepare('SELECT id, status FROM tenants WHERE id = ?').get(req.params.tenantId) as any;
+    const tenant = await queryOne('SELECT id, status FROM tenants WHERE id = $1', [req.params.tenantId]);
     if (!tenant) throw new AppError(404, 'TENANT_NOT_FOUND', 'Tenant not found');
 
-    db.prepare('UPDATE tenants SET status = \'offboarding\', updated_at = datetime(\'now\') WHERE id = ?').run(req.params.tenantId);
+    await execute(`UPDATE tenants SET status = 'offboarding', updated_at = NOW() WHERE id = $1`, [req.params.tenantId]);
 
-    auditFromRequest(req, 'tenant', 'tenant.offboarding', {
+    await auditFromRequest(req, 'tenant', 'tenant.offboarding', {
       tenantId: req.params.tenantId,
       targetResources: [req.params.tenantId],
     });

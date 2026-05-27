@@ -5,6 +5,7 @@ namespace: entra-portal-system
 
 resources:
   - namespace.yaml
+  - postgres-statefulset.yaml
   - api-deployment.yaml
   - api-service.yaml
   - api-configmap.yaml

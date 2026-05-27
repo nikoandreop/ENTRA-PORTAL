@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { getDb } from '../models/database.js';
+import { queryOne, queryAll, queryCount } from '../models/query.js';
 import { authenticate, authorize, requireTenantAccess } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { AppError } from '../middleware/error-handler.js';
@@ -22,36 +22,36 @@ const userSearchSchema = z.object({
 
 userRouter.use(authenticate, requireTenantAccess);
 
-userRouter.get('/', authorize('users:read'), (req: Request, res: Response, next: NextFunction) => {
+userRouter.get('/', authorize('users:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const db = getDb();
     const { tenantId } = req.params;
     const query = userSearchSchema.parse(req.query);
     const offset = (Number(query.page) - 1) * Number(query.pageSize);
 
-    let sql = 'SELECT * FROM entra_users WHERE tenant_id = ?';
+    let sql = 'SELECT * FROM entra_users WHERE tenant_id = $1';
     const params: any[] = [tenantId];
+    let paramIdx = 1;
 
     if (query.search) {
-      sql += ' AND (display_name LIKE ? OR user_principal_name LIKE ? OR mail LIKE ?)';
+      sql += ` AND (display_name LIKE $${++paramIdx} OR user_principal_name LIKE $${++paramIdx} OR mail LIKE $${++paramIdx})`;
       params.push(`%${query.search}%`, `%${query.search}%`, `%${query.search}%`);
     }
-    if (query.department) { sql += ' AND department = ?'; params.push(query.department); }
-    if (query.accountEnabled !== undefined) { sql += ' AND account_enabled = ?'; params.push(query.accountEnabled === 'true' ? 1 : 0); }
-    if (query.mfaEnabled !== undefined) { sql += ' AND mfa_enabled = ?'; params.push(query.mfaEnabled === 'true' ? 1 : 0); }
-    if (query.riskLevel) { sql += ' AND risk_level = ?'; params.push(query.riskLevel); }
+    if (query.department) { sql += ` AND department = $${++paramIdx}`; params.push(query.department); }
+    if (query.accountEnabled !== undefined) { sql += ` AND account_enabled = $${++paramIdx}`; params.push(query.accountEnabled === 'true'); }
+    if (query.mfaEnabled !== undefined) { sql += ` AND mfa_enabled = $${++paramIdx}`; params.push(query.mfaEnabled === 'true'); }
+    if (query.riskLevel) { sql += ` AND risk_level = $${++paramIdx}`; params.push(query.riskLevel); }
 
     const allowedSorts = ['display_name', 'user_principal_name', 'department', 'last_sign_in', 'risk_level'];
     const sortBy = allowedSorts.includes(query.sortBy) ? query.sortBy : 'display_name';
     sql += ` ORDER BY ${sortBy} ${query.sortOrder}`;
 
     const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) as total');
-    const total = (db.prepare(countSql).get(...params) as any).total;
+    const total = await queryCount(countSql, params);
 
-    sql += ' LIMIT ? OFFSET ?';
+    sql += ` LIMIT $${++paramIdx} OFFSET $${++paramIdx}`;
     params.push(Number(query.pageSize), offset);
 
-    const users = db.prepare(sql).all(...params);
+    const users = await queryAll(sql, params);
 
     res.json({
       success: true,
@@ -66,8 +66,8 @@ userRouter.get('/', authorize('users:read'), (req: Request, res: Response, next:
         department: u.department,
         accountEnabled: !!u.account_enabled,
         mfaEnabled: !!u.mfa_enabled,
-        mfaMethods: JSON.parse(u.mfa_methods),
-        assignedLicenses: JSON.parse(u.assigned_licenses),
+        mfaMethods: typeof u.mfa_methods === 'string' ? JSON.parse(u.mfa_methods) : u.mfa_methods,
+        assignedLicenses: typeof u.assigned_licenses === 'string' ? JSON.parse(u.assigned_licenses) : u.assigned_licenses,
         lastSignIn: u.last_sign_in,
         riskLevel: u.risk_level,
         syncedAt: u.synced_at,
@@ -84,23 +84,24 @@ userRouter.get('/', authorize('users:read'), (req: Request, res: Response, next:
   }
 });
 
-userRouter.get('/stats', authorize('users:read'), (req: Request, res: Response, next: NextFunction) => {
+userRouter.get('/stats', authorize('users:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const db = getDb();
     const { tenantId } = req.params;
 
-    const total = (db.prepare('SELECT COUNT(*) as c FROM entra_users WHERE tenant_id = ?').get(tenantId) as any).c;
-    const enabled = (db.prepare('SELECT COUNT(*) as c FROM entra_users WHERE tenant_id = ? AND account_enabled = 1').get(tenantId) as any).c;
-    const mfaEnabled = (db.prepare('SELECT COUNT(*) as c FROM entra_users WHERE tenant_id = ? AND mfa_enabled = 1').get(tenantId) as any).c;
-    const atRisk = (db.prepare('SELECT COUNT(*) as c FROM entra_users WHERE tenant_id = ? AND risk_level IN (\'medium\', \'high\', \'critical\')').get(tenantId) as any).c;
+    const total = await queryCount('SELECT COUNT(*) as total FROM entra_users WHERE tenant_id = $1', [tenantId]);
+    const enabled = await queryCount('SELECT COUNT(*) as total FROM entra_users WHERE tenant_id = $1 AND account_enabled = true', [tenantId]);
+    const mfaEnabled = await queryCount('SELECT COUNT(*) as total FROM entra_users WHERE tenant_id = $1 AND mfa_enabled = true', [tenantId]);
+    const atRisk = await queryCount(`SELECT COUNT(*) as total FROM entra_users WHERE tenant_id = $1 AND risk_level IN ('medium', 'high', 'critical')`, [tenantId]);
 
-    const departments = db.prepare(
-      'SELECT department, COUNT(*) as count FROM entra_users WHERE tenant_id = ? AND department IS NOT NULL GROUP BY department ORDER BY count DESC LIMIT 10'
-    ).all(tenantId);
+    const departments = await queryAll(
+      'SELECT department, COUNT(*) as count FROM entra_users WHERE tenant_id = $1 AND department IS NOT NULL GROUP BY department ORDER BY count DESC LIMIT 10',
+      [tenantId],
+    );
 
-    const riskBreakdown = db.prepare(
-      'SELECT risk_level, COUNT(*) as count FROM entra_users WHERE tenant_id = ? GROUP BY risk_level'
-    ).all(tenantId);
+    const riskBreakdown = await queryAll(
+      'SELECT risk_level, COUNT(*) as count FROM entra_users WHERE tenant_id = $1 GROUP BY risk_level',
+      [tenantId],
+    );
 
     res.json({
       success: true,
@@ -120,10 +121,9 @@ userRouter.get('/stats', authorize('users:read'), (req: Request, res: Response, 
   }
 });
 
-userRouter.get('/:userId', authorize('users:read'), (req: Request, res: Response, next: NextFunction) => {
+userRouter.get('/:userId', authorize('users:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const db = getDb();
-    const user = db.prepare('SELECT * FROM entra_users WHERE id = ? AND tenant_id = ?').get(req.params.userId, req.params.tenantId) as any;
+    const user = await queryOne('SELECT * FROM entra_users WHERE id = $1 AND tenant_id = $2', [req.params.userId, req.params.tenantId]);
     if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
 
     res.json({
@@ -139,8 +139,8 @@ userRouter.get('/:userId', authorize('users:read'), (req: Request, res: Response
         department: user.department,
         accountEnabled: !!user.account_enabled,
         mfaEnabled: !!user.mfa_enabled,
-        mfaMethods: JSON.parse(user.mfa_methods),
-        assignedLicenses: JSON.parse(user.assigned_licenses),
+        mfaMethods: typeof user.mfa_methods === 'string' ? JSON.parse(user.mfa_methods) : user.mfa_methods,
+        assignedLicenses: typeof user.assigned_licenses === 'string' ? JSON.parse(user.assigned_licenses) : user.assigned_licenses,
         lastSignIn: user.last_sign_in,
         riskLevel: user.risk_level,
         createdDateTime: user.created_date_time,

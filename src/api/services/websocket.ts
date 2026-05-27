@@ -128,19 +128,28 @@ export class WebSocketServer {
     }
   }
 
-  private handleRegistration(agent: ConnectedAgent, registration: AgentRegistration): void {
+  private async handleRegistration(agent: ConnectedAgent, registration: AgentRegistration): Promise<void> {
     agent.agentId = registration.agentId;
     agent.tenantId = registration.tenantId;
     agent.registered = true;
     this.agents.set(registration.agentId, agent);
 
     const db = getDb();
-    db.prepare(`
-      INSERT OR REPLACE INTO agent_connections (agent_id, tenant_id, hostname, version, capabilities, status, last_heartbeat, connected_at)
-      VALUES (?, ?, ?, ?, ?, 'connected', datetime('now'), datetime('now'))
-    `).run(registration.agentId, registration.tenantId, registration.hostname, registration.version, JSON.stringify(registration.capabilities));
+    await db.query(
+      `INSERT INTO agent_connections (agent_id, tenant_id, hostname, version, capabilities, status, last_heartbeat, connected_at)
+      VALUES ($1, $2, $3, $4, $5, 'connected', NOW(), NOW())
+      ON CONFLICT (agent_id) DO UPDATE SET
+        tenant_id = EXCLUDED.tenant_id,
+        hostname = EXCLUDED.hostname,
+        version = EXCLUDED.version,
+        capabilities = EXCLUDED.capabilities,
+        status = EXCLUDED.status,
+        last_heartbeat = EXCLUDED.last_heartbeat,
+        connected_at = EXCLUDED.connected_at`,
+      [registration.agentId, registration.tenantId, registration.hostname, registration.version, JSON.stringify(registration.capabilities)],
+    );
 
-    this.updateAgentStatus(registration.tenantId, 'connected');
+    await this.updateAgentStatus(registration.tenantId, 'connected');
 
     agent.ws.send(JSON.stringify({
       type: 'server:ack',
@@ -151,22 +160,23 @@ export class WebSocketServer {
     logger.info('Agent registered', { agentId: registration.agentId, tenantId: registration.tenantId });
   }
 
-  private handleHeartbeat(agent: ConnectedAgent, heartbeat: AgentHeartbeat): void {
+  private async handleHeartbeat(agent: ConnectedAgent, heartbeat: AgentHeartbeat): Promise<void> {
     agent.lastHeartbeat = Date.now();
     const db = getDb();
-    db.prepare(`
-      UPDATE agent_connections SET last_heartbeat = datetime('now'), metrics = ?, status = ? WHERE agent_id = ?
-    `).run(JSON.stringify(heartbeat.metrics), heartbeat.status.healthy ? 'connected' : 'degraded', agent.agentId);
+    await db.query(
+      `UPDATE agent_connections SET last_heartbeat = NOW(), metrics = $1, status = $2 WHERE agent_id = $3`,
+      [JSON.stringify(heartbeat.metrics), heartbeat.status.healthy ? 'connected' : 'degraded', agent.agentId],
+    );
 
     if (!heartbeat.status.healthy) {
-      this.updateAgentStatus(agent.tenantId, 'degraded');
+      await this.updateAgentStatus(agent.tenantId, 'degraded');
     }
   }
 
-  private handleDataSync(agent: ConnectedAgent, message: WebSocketMessage): void {
+  private async handleDataSync(agent: ConnectedAgent, message: WebSocketMessage): Promise<void> {
     logger.info('Received data sync from agent', { agentId: agent.agentId, tenantId: agent.tenantId });
     const db = getDb();
-    db.prepare('UPDATE tenants SET last_sync_at = datetime(\'now\') WHERE id = ?').run(agent.tenantId);
+    await db.query(`UPDATE tenants SET last_sync_at = NOW() WHERE id = $1`, [agent.tenantId]);
   }
 
   private handleCommandResult(result: AgentCommandResult): void {
@@ -210,9 +220,9 @@ export class WebSocketServer {
     return undefined;
   }
 
-  private updateAgentStatus(tenantId: string, status: string): void {
+  private async updateAgentStatus(tenantId: string, status: string): Promise<void> {
     const db = getDb();
-    db.prepare('UPDATE tenants SET agent_status = ?, updated_at = datetime(\'now\') WHERE id = ?').run(status, tenantId);
+    await db.query('UPDATE tenants SET agent_status = $1, updated_at = NOW() WHERE id = $2', [status, tenantId]);
   }
 
   private checkAgentHealth(): void {

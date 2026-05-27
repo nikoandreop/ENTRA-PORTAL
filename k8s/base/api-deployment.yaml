@@ -33,6 +33,17 @@ spec:
                 name: api-config
             - secretRef:
                 name: api-secrets
+          env:
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
           resources:
             requests:
               cpu: 250m
@@ -53,15 +64,10 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
           volumeMounts:
-            - name: data
-              mountPath: /data
             - name: certs
               mountPath: /certs
               readOnly: true
       volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: api-data
         - name: certs
           secret:
             secretName: api-tls-certs
@@ -71,15 +77,3 @@ kind: ServiceAccount
 metadata:
   name: entra-portal-api
   namespace: entra-portal-system
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: api-data
-  namespace: entra-portal-system
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 10Gi

@@ -47,3 +47,10 @@ logs/
 
 # Coverage
 coverage/
+
+# Playwright
+playwright-report/
+test-results/
+
+# E2E
+/blob-report/

@@ -24,30 +24,31 @@ export interface AuditEntry {
   ipAddress?: string;
 }
 
-export function recordAudit(entry: AuditEntry): void {
+export async function recordAudit(entry: AuditEntry): Promise<void> {
   try {
     const db = getDb();
-    db.prepare(`
-      INSERT INTO portal_audit_log
+    await db.query(
+      `INSERT INTO portal_audit_log
         (id, tenant_id, category, action, initiated_by, target_resources, result, details, ip_address, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-    `).run(
-      uuidv4(),
-      entry.tenantId || null,
-      entry.category,
-      entry.action,
-      entry.initiatedBy,
-      JSON.stringify(entry.targetResources || []),
-      entry.result,
-      entry.details ? JSON.stringify(entry.details) : null,
-      entry.ipAddress || null,
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
+      [
+        uuidv4(),
+        entry.tenantId || null,
+        entry.category,
+        entry.action,
+        entry.initiatedBy,
+        JSON.stringify(entry.targetResources || []),
+        entry.result,
+        entry.details ? JSON.stringify(entry.details) : null,
+        entry.ipAddress || null,
+      ],
     );
   } catch (err) {
     logger.error('Failed to write audit log', { error: (err as Error).message, entry });
   }
 }
 
-export function auditFromRequest(
+export async function auditFromRequest(
   req: Request,
   category: AuditCategory,
   action: string,
@@ -57,8 +58,8 @@ export function auditFromRequest(
     result?: 'success' | 'failure';
     details?: Record<string, unknown>;
   } = {},
-): void {
-  recordAudit({
+): Promise<void> {
+  await recordAudit({
     tenantId: opts.tenantId || req.params.tenantId || null,
     category,
     action,

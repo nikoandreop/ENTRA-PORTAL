@@ -1,4 +1,21 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: entra_portal
+      POSTGRES_USER: entra
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-entra_dev_password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U entra -d entra_portal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: ..
@@ -8,21 +25,32 @@ services:
       - "3002:3002"
     environment:
       - NODE_ENV=development
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=entra_portal
+      - DB_USER=entra
+      - DB_PASSWORD=${DB_PASSWORD:-entra_dev_password}
+      - DB_POOL_MAX=20
       - JWT_SECRET=${JWT_SECRET:-change-me-in-production-use-64-char-random}
       - AGENT_JWT_SECRET=${AGENT_JWT_SECRET:-change-agent-secret-in-production}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-change-this-32-char-encryption-key!}
       - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-EntraPortal!2024}
       - CORS_ORIGIN=http://localhost:5173
       - LOG_LEVEL=debug
-      - DB_DIR=/data
-    volumes:
-      - api-data:/data
+      - SSO_TENANT_ID=${SSO_TENANT_ID:-}
+      - SSO_CLIENT_ID=${SSO_CLIENT_ID:-}
+      - SSO_CLIENT_SECRET=${SSO_CLIENT_SECRET:-}
+      - SSO_REDIRECT_URI=${SSO_REDIRECT_URI:-http://localhost:5173/auth/callback}
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 15s
 
   frontend:
     build:
@@ -54,4 +82,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  api-data:
+  postgres-data:

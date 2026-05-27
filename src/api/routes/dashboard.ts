@@ -1,21 +1,23 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { getDb } from '../models/database.js';
+import { queryOne, queryAll, queryCount } from '../models/query.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 
 export const dashboardRouter = Router();
 
 dashboardRouter.use(authenticate);
 
-dashboardRouter.get('/overview', authorize('tenants:read'), (req: Request, res: Response, next: NextFunction) => {
+dashboardRouter.get('/overview', authorize('tenants:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const db = getDb();
+    const isSuperOrWildcard = req.user!.role === 'superadmin' || req.user!.tenantAccess.includes('*');
+    const filterParams = isSuperOrWildcard ? [] : req.user!.tenantAccess.filter(a => a !== '*');
 
-    const tenantFilter = req.user!.role === 'superadmin' || req.user!.tenantAccess.includes('*')
-      ? ''
-      : ` WHERE id IN (${req.user!.tenantAccess.map(() => '?').join(',')})`;
-    const filterParams = tenantFilter ? req.user!.tenantAccess.filter(a => a !== '*') : [];
+    let tenantFilter = '';
+    if (!isSuperOrWildcard && filterParams.length > 0) {
+      const placeholders = filterParams.map((_, i) => `$${i + 1}`).join(',');
+      tenantFilter = ` WHERE id IN (${placeholders})`;
+    }
 
-    const tenantStats = db.prepare(`
+    const tenantStats = await queryOne(`
       SELECT
         COUNT(*) as total,
         SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
@@ -23,32 +25,44 @@ dashboardRouter.get('/overview', authorize('tenants:read'), (req: Request, res: 
         SUM(CASE WHEN agent_status = 'connected' THEN 1 ELSE 0 END) as agents_connected,
         SUM(CASE WHEN agent_status = 'disconnected' THEN 1 ELSE 0 END) as agents_disconnected
       FROM tenants${tenantFilter}
-    `).get(...filterParams) as any;
+    `, filterParams);
 
-    const userStats = db.prepare(`
+    let userFilterClause = '';
+    if (!isSuperOrWildcard && filterParams.length > 0) {
+      const placeholders = filterParams.map((_, i) => `$${i + 1}`).join(',');
+      userFilterClause = ` WHERE tenant_id IN (SELECT id FROM tenants WHERE id IN (${placeholders}))`;
+    }
+
+    const userStats = await queryOne(`
       SELECT
         COUNT(*) as total,
-        SUM(CASE WHEN account_enabled = 1 THEN 1 ELSE 0 END) as enabled,
-        SUM(CASE WHEN mfa_enabled = 1 THEN 1 ELSE 0 END) as mfa_enabled,
+        SUM(CASE WHEN account_enabled = true THEN 1 ELSE 0 END) as enabled,
+        SUM(CASE WHEN mfa_enabled = true THEN 1 ELSE 0 END) as mfa_enabled,
         SUM(CASE WHEN risk_level IN ('medium', 'high', 'critical') THEN 1 ELSE 0 END) as at_risk
-      FROM entra_users${tenantFilter ? ` WHERE tenant_id IN (SELECT id FROM tenants${tenantFilter})` : ''}
-    `).get(...filterParams) as any;
+      FROM entra_users${userFilterClause}
+    `, filterParams);
 
-    const alertStats = db.prepare(`
+    const alertStats = await queryOne(`
       SELECT
         COUNT(*) as total,
         SUM(CASE WHEN status = 'new' THEN 1 ELSE 0 END) as new_alerts,
         SUM(CASE WHEN severity = 'critical' AND status != 'resolved' THEN 1 ELSE 0 END) as critical,
         SUM(CASE WHEN severity = 'high' AND status != 'resolved' THEN 1 ELSE 0 END) as high
-      FROM security_alerts${tenantFilter ? ` WHERE tenant_id IN (SELECT id FROM tenants${tenantFilter})` : ''}
-    `).get(...filterParams) as any;
+      FROM security_alerts${userFilterClause}
+    `, filterParams);
 
-    const recentAlerts = db.prepare(`
+    let recentAlertsFilterClause = '';
+    if (!isSuperOrWildcard && filterParams.length > 0) {
+      const placeholders = filterParams.map((_, i) => `$${i + 1}`).join(',');
+      recentAlertsFilterClause = `WHERE sa.tenant_id IN (SELECT id FROM tenants WHERE id IN (${placeholders}))`;
+    }
+
+    const recentAlerts = await queryAll(`
       SELECT sa.*, t.name as tenant_name FROM security_alerts sa
       JOIN tenants t ON t.id = sa.tenant_id
-      ${tenantFilter ? `WHERE sa.tenant_id IN (SELECT id FROM tenants${tenantFilter})` : ''}
+      ${recentAlertsFilterClause}
       ORDER BY sa.detected_at DESC LIMIT 10
-    `).all(...filterParams);
+    `, filterParams);
 
     res.json({
       success: true,
@@ -73,17 +87,15 @@ dashboardRouter.get('/overview', authorize('tenants:read'), (req: Request, res: 
   }
 });
 
-dashboardRouter.get('/compliance', authorize('tenants:read'), (req: Request, res: Response, next: NextFunction) => {
+dashboardRouter.get('/compliance', authorize('tenants:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const db = getDb();
+    const tenants = await queryAll(`SELECT id, name, domain FROM tenants WHERE status = 'active'`, []);
 
-    const tenants = db.prepare('SELECT id, name, domain FROM tenants WHERE status = \'active\'').all() as any[];
-
-    const compliance = tenants.map((t: any) => {
-      const totalUsers = (db.prepare('SELECT COUNT(*) as c FROM entra_users WHERE tenant_id = ?').get(t.id) as any).c;
-      const mfaUsers = (db.prepare('SELECT COUNT(*) as c FROM entra_users WHERE tenant_id = ? AND mfa_enabled = 1').get(t.id) as any).c;
-      const caEnabled = (db.prepare('SELECT COUNT(*) as c FROM conditional_access_policies WHERE tenant_id = ? AND state = \'enabled\'').get(t.id) as any).c;
-      const openAlerts = (db.prepare('SELECT COUNT(*) as c FROM security_alerts WHERE tenant_id = ? AND status IN (\'new\', \'acknowledged\')').get(t.id) as any).c;
+    const compliance = await Promise.all(tenants.map(async (t: any) => {
+      const totalUsers = await queryCount('SELECT COUNT(*) as total FROM entra_users WHERE tenant_id = $1', [t.id]);
+      const mfaUsers = await queryCount('SELECT COUNT(*) as total FROM entra_users WHERE tenant_id = $1 AND mfa_enabled = true', [t.id]);
+      const caEnabled = await queryCount(`SELECT COUNT(*) as total FROM conditional_access_policies WHERE tenant_id = $1 AND state = 'enabled'`, [t.id]);
+      const openAlerts = await queryCount(`SELECT COUNT(*) as total FROM security_alerts WHERE tenant_id = $1 AND status IN ('new', 'acknowledged')`, [t.id]);
 
       const mfaRate = totalUsers > 0 ? Math.round((mfaUsers / totalUsers) * 100) : 0;
 
@@ -96,7 +108,7 @@ dashboardRouter.get('/compliance', authorize('tenants:read'), (req: Request, res
         openAlerts,
         complianceScore: Math.max(0, Math.min(100, mfaRate - openAlerts * 2 + Math.min(caEnabled * 5, 20))),
       };
-    });
+    }));
 
     res.json({ success: true, data: compliance });
   } catch (err) {

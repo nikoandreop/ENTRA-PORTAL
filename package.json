@@ -16,14 +16,20 @@
     "build": "npm run build --workspaces",
     "lint": "eslint . --ext .ts,.tsx",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "jest --passWithNoTests",
+    "test": "npm -w src/api run test",
+    "test:integration": "npm -w src/api run test:integration",
+    "test:e2e": "npx playwright test",
+    "test:validate-tenant": "npx tsx tests/integration/entra-tenant-validator.ts",
     "docker:build": "docker compose -f docker/docker-compose.yml build",
     "docker:up": "docker compose -f docker/docker-compose.yml up -d",
-    "docker:down": "docker compose -f docker/docker-compose.yml down"
+    "docker:down": "docker compose -f docker/docker-compose.yml down",
+    "db:start": "docker compose -f docker/docker-compose.yml up -d postgres"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "eslint": "^8.56.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "@playwright/test": "^1.41.0",
+    "wait-on": "^7.2.0"
   }
 }

@@ -6,7 +6,7 @@ import rateLimit from 'express-rate-limit';
 import hpp from 'hpp';
 import { createServer } from 'node:http';
 import { logger } from './utils/logger.js';
-import { initDatabase } from './models/database.js';
+import { initDatabase, closeDatabase } from './models/database.js';
 import { WebSocketServer } from './services/websocket.js';
 import { authRouter } from './routes/auth.js';
 import { tenantRouter } from './routes/tenants.js';
@@ -30,7 +30,7 @@ app.use(helmet({
       scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:"],
-      connectSrc: ["'self'", `ws://localhost:${WS_PORT}`],
+      connectSrc: ["'self'", `ws://localhost:${WS_PORT}`, 'wss:'],
     },
   },
   hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
@@ -58,8 +58,14 @@ app.use(rateLimit({
 
 app.use(requestLogger);
 
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString(), version: '1.0.0' });
+app.get('/api/health', async (_req, res) => {
+  try {
+    const { getDb } = await import('./models/database.js');
+    await getDb().query('SELECT 1');
+    res.json({ status: 'healthy', timestamp: new Date().toISOString(), version: '1.0.0', database: 'connected' });
+  } catch {
+    res.status(503).json({ status: 'unhealthy', timestamp: new Date().toISOString(), version: '1.0.0', database: 'disconnected' });
+  }
 });
 
 app.use('/api/auth', authRouter);
@@ -77,7 +83,7 @@ app.use(errorHandler);
 
 async function start() {
   try {
-    initDatabase();
+    await initDatabase();
     logger.info('Database initialized');
 
     const httpServer = createServer(app);
@@ -92,8 +98,9 @@ async function start() {
     const shutdown = async (signal: string) => {
       logger.info(`Received ${signal}, shutting down gracefully`);
       wsServer.stop();
-      httpServer.close(() => {
-        logger.info('HTTP server closed');
+      httpServer.close(async () => {
+        await closeDatabase();
+        logger.info('Server closed');
         process.exit(0);
       });
       setTimeout(() => process.exit(1), 10_000);
