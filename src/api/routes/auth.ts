@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import { v4 as uuidv4 } from 'uuid';
-import { queryOne } from '../models/query.js';
+import { queryOne, queryAll, execute } from '../models/query.js';
 import { getDb } from '../models/database.js';
 import { authenticate, generateToken, generateRefreshToken, verifyRefreshToken } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
@@ -155,5 +155,97 @@ authRouter.post('/sso/callback', authLimiter, async (req: Request, res: Response
         user: { id: user!.id, email: user!.email, displayName: user!.display_name, role: user!.role, tenantAccess, mfaEnabled: !!user!.mfa_enabled, lastLogin: new Date().toISOString() },
       },
     });
+  } catch (err) { next(err); }
+});
+
+// Dashboard user management (admin/superadmin only)
+
+authRouter.get('/users', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (req.user!.role !== 'superadmin' && req.user!.role !== 'admin') {
+      throw new AppError(403, 'FORBIDDEN', 'Only admins can manage users');
+    }
+    const users = await queryAll(
+      'SELECT id, email, display_name, role, tenant_access, mfa_enabled, auth_provider, last_login, created_at FROM dashboard_users ORDER BY created_at',
+      [],
+    );
+    res.json({
+      success: true,
+      data: users.map((u: any) => ({
+        id: u.id,
+        email: u.email,
+        displayName: u.display_name,
+        role: u.role,
+        tenantAccess: typeof u.tenant_access === 'string' ? JSON.parse(u.tenant_access) : u.tenant_access,
+        mfaEnabled: !!u.mfa_enabled,
+        authProvider: u.auth_provider,
+        lastLogin: u.last_login,
+        createdAt: u.created_at,
+      })),
+    });
+  } catch (err) { next(err); }
+});
+
+const createUserSchema = z.object({
+  email: z.string().email(),
+  displayName: z.string().min(2).max(100),
+  role: z.enum(['superadmin', 'admin', 'operator', 'viewer']),
+  password: z.string().min(12),
+  tenantAccess: z.array(z.string()).optional(),
+});
+
+authRouter.post('/users', authenticate, validate(createUserSchema), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (req.user!.role !== 'superadmin' && req.user!.role !== 'admin') {
+      throw new AppError(403, 'FORBIDDEN', 'Only admins can create users');
+    }
+    if (req.body.role === 'superadmin' && req.user!.role !== 'superadmin') {
+      throw new AppError(403, 'FORBIDDEN', 'Only superadmins can create superadmin users');
+    }
+
+    const existing = await queryOne('SELECT id FROM dashboard_users WHERE email = $1', [req.body.email]);
+    if (existing) throw new AppError(409, 'USER_EXISTS', 'A user with this email already exists');
+
+    const id = uuidv4();
+    const hash = bcrypt.hashSync(req.body.password, 12);
+    const tenantAccess = JSON.stringify(req.body.tenantAccess || []);
+
+    await getDb().query(
+      `INSERT INTO dashboard_users (id, email, display_name, password_hash, role, tenant_access, auth_provider)
+       VALUES ($1, $2, $3, $4, $5, $6, 'local')`,
+      [id, req.body.email, req.body.displayName, hash, req.body.role, tenantAccess],
+    );
+
+    await auditFromRequest(req, 'settings', 'user.created', {
+      targetResources: [id, req.body.email],
+      details: { role: req.body.role },
+    });
+
+    res.status(201).json({ success: true, data: { id, email: req.body.email, role: req.body.role } });
+  } catch (err) { next(err); }
+});
+
+authRouter.delete('/users/:userId', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (req.user!.role !== 'superadmin' && req.user!.role !== 'admin') {
+      throw new AppError(403, 'FORBIDDEN', 'Only admins can delete users');
+    }
+    if (req.params.userId === req.user!.sub) {
+      throw new AppError(400, 'CANNOT_DELETE_SELF', 'Cannot delete your own account');
+    }
+
+    const target = await queryOne('SELECT id, email, role FROM dashboard_users WHERE id = $1', [req.params.userId]);
+    if (!target) throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
+    if (target.role === 'superadmin' && req.user!.role !== 'superadmin') {
+      throw new AppError(403, 'FORBIDDEN', 'Only superadmins can delete superadmin users');
+    }
+
+    await execute('DELETE FROM dashboard_users WHERE id = $1', [req.params.userId]);
+
+    await auditFromRequest(req, 'settings', 'user.deleted', {
+      targetResources: [req.params.userId, target.email],
+    });
+
+    res.json({ success: true, data: { message: 'User deleted' } });
   } catch (err) { next(err); }
 });
