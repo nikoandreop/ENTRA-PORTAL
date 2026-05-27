@@ -1,8 +1,8 @@
-import { useState, type FormEvent } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { useMutation } from '@tanstack/react-query';
-import { onboardTenant } from '@/services/tenants';
-import { ArrowLeft, Building2, Check } from 'lucide-react';
+import { useState, useEffect, type FormEvent } from 'react';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { api } from '@/services/api';
+import { ArrowLeft, Building2, Check, Loader2 } from 'lucide-react';
 
 const MODULES = [
   { id: 'users', label: 'User Management', description: 'Sync and manage Entra ID users' },
@@ -16,40 +16,72 @@ const MODULES = [
 
 export function OnboardTenantPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [step, setStep] = useState(1);
-  const [form, setForm] = useState({
-    name: '',
-    domain: '',
-    entraDirectoryId: '',
-    clientId: '',
-    clientSecret: '',
-    adminConsent: false,
-    enabledModules: ['users', 'groups', 'security-alerts'] as string[],
-  });
+  const [name, setName] = useState('');
+  const [enabledModules, setEnabledModules] = useState(['users', 'groups', 'security-alerts']);
   const [error, setError] = useState('');
+  const [completing, setCompleting] = useState(false);
 
-  const mutation = useMutation({
-    mutationFn: onboardTenant,
-    onSuccess: (data) => navigate(`/tenants/${data.id}`),
-    onError: (err: any) => setError(err.response?.data?.error?.message || 'Onboarding failed'),
+  const { data: consentConfig } = useQuery({
+    queryKey: ['consent-config'],
+    queryFn: async () => { const { data } = await api.get('/tenants/consent/config'); return data.data; },
+  });
+
+  useEffect(() => {
+    const adminConsent = searchParams.get('admin_consent');
+    const tenant = searchParams.get('tenant');
+    const state = searchParams.get('state');
+    const errorParam = searchParams.get('error');
+    const errorDesc = searchParams.get('error_description');
+
+    if (errorParam) {
+      setError(errorDesc || errorParam);
+      return;
+    }
+
+    if (adminConsent && tenant && state) {
+      setCompleting(true);
+      api.post('/tenants/consent/complete', { state, tenant, admin_consent: adminConsent })
+        .then(({ data }) => navigate(`/tenants/${data.data.id}`))
+        .catch((err) => {
+          setError(err.response?.data?.error?.message || 'Failed to complete onboarding');
+          setCompleting(false);
+        });
+    }
+  }, [searchParams, navigate]);
+
+  const consentMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post('/tenants/consent/start', { name, enabledModules });
+      return data.data;
+    },
+    onSuccess: (data) => {
+      window.location.href = data.consentUrl;
+    },
+    onError: (err: any) => setError(err.response?.data?.error?.message || 'Failed to start consent'),
   });
 
   function toggleModule(id: string) {
-    setForm((prev) => ({
-      ...prev,
-      enabledModules: prev.enabledModules.includes(id)
-        ? prev.enabledModules.filter((m) => m !== id)
-        : [...prev.enabledModules, id],
-    }));
+    setEnabledModules(prev => prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]);
   }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (step < 3) {
-      setStep(step + 1);
-      return;
-    }
-    mutation.mutate(form);
+    if (step === 1) { setStep(2); return; }
+    consentMutation.mutate();
+  }
+
+  if (completing) {
+    return (
+      <div className="mx-auto max-w-2xl mt-20 text-center">
+        <div className="card">
+          <Loader2 className="mx-auto h-10 w-10 text-brand-500 animate-spin mb-4" />
+          <h2 className="text-lg font-bold text-gray-900">Connecting tenant...</h2>
+          <p className="text-sm text-gray-500 mt-1">Verifying consent and pulling tenant info from Microsoft.</p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -65,12 +97,12 @@ export function OnboardTenantPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-gray-900">Onboard Tenant</h1>
-            <p className="text-sm text-gray-500">Step {step} of 3</p>
+            <p className="text-sm text-gray-500">Step {step} of 2</p>
           </div>
         </div>
 
         <div className="mb-6 flex gap-2">
-          {[1, 2, 3].map((s) => (
+          {[1, 2].map((s) => (
             <div key={s} className={`h-1.5 flex-1 rounded-full ${s <= step ? 'bg-brand-500' : 'bg-gray-200'}`} />
           ))}
         </div>
@@ -82,49 +114,18 @@ export function OnboardTenantPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           {step === 1 && (
             <>
-              <h2 className="text-lg font-semibold">Tenant Information</h2>
+              <h2 className="text-lg font-semibold">Tenant Details</h2>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Organization Name</label>
-                <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="input-field" placeholder="Contoso Ltd" />
+                <input required value={name} onChange={(e) => setName(e.target.value)} className="input-field" placeholder="Contoso Ltd" />
+                <p className="text-xs text-gray-400 mt-1">Friendly name for this tenant in the dashboard</p>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Domain</label>
-                <input required value={form.domain} onChange={(e) => setForm({ ...form, domain: e.target.value })} className="input-field" placeholder="contoso.onmicrosoft.com" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Entra Directory ID</label>
-                <input required value={form.entraDirectoryId} onChange={(e) => setForm({ ...form, entraDirectoryId: e.target.value })} className="input-field font-mono" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
-              </div>
-            </>
-          )}
 
-          {step === 2 && (
-            <>
-              <h2 className="text-lg font-semibold">App Registration</h2>
-              <p className="text-sm text-gray-500">Enter the credentials from the Azure App Registration configured for this tenant.</p>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Application (Client) ID</label>
-                <input required value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })} className="input-field font-mono" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Client Secret</label>
-                <input required type="password" value={form.clientSecret} onChange={(e) => setForm({ ...form, clientSecret: e.target.value })} className="input-field" placeholder="Enter client secret" />
-              </div>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" required checked={form.adminConsent} onChange={(e) => setForm({ ...form, adminConsent: e.target.checked })} className="rounded border-gray-300 text-brand-500 focus:ring-brand-500" />
-                <span>I confirm admin consent has been granted for the required Graph API permissions</span>
-              </label>
-            </>
-          )}
-
-          {step === 3 && (
-            <>
-              <h2 className="text-lg font-semibold">Select Modules</h2>
-              <p className="text-sm text-gray-500">Choose which management modules to enable for this tenant.</p>
+              <h3 className="text-sm font-semibold text-gray-700 mt-4">Modules</h3>
               <div className="space-y-2">
                 {MODULES.map((mod) => (
-                  <label key={mod.id} className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-colors ${form.enabledModules.includes(mod.id) ? 'border-brand-300 bg-brand-50' : 'border-gray-200 hover:bg-gray-50'}`}>
-                    <input type="checkbox" checked={form.enabledModules.includes(mod.id)} onChange={() => toggleModule(mod.id)} className="rounded border-gray-300 text-brand-500 focus:ring-brand-500" />
+                  <label key={mod.id} className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-colors ${enabledModules.includes(mod.id) ? 'border-brand-300 bg-brand-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                    <input type="checkbox" checked={enabledModules.includes(mod.id)} onChange={() => toggleModule(mod.id)} className="rounded border-gray-300 text-brand-500 focus:ring-brand-500" />
                     <div>
                       <p className="text-sm font-medium text-gray-900">{mod.label}</p>
                       <p className="text-xs text-gray-500">{mod.description}</p>
@@ -135,14 +136,53 @@ export function OnboardTenantPage() {
             </>
           )}
 
+          {step === 2 && (
+            <>
+              <h2 className="text-lg font-semibold">Connect to Microsoft</h2>
+              {consentConfig?.enabled ? (
+                <div className="space-y-4">
+                  <div className="rounded-lg border-2 border-dashed border-brand-200 bg-brand-50 p-6 text-center">
+                    <svg width="40" height="40" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg" className="mx-auto mb-3">
+                      <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+                      <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+                      <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+                      <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+                    </svg>
+                    <p className="text-sm font-medium text-gray-900 mb-1">Grant admin consent for "{name}"</p>
+                    <p className="text-xs text-gray-500 mb-4">
+                      Sign in as a Global Admin of the customer's tenant. Microsoft will handle the permissions approval.
+                      The tenant ID, domain, and connection will be set up automatically.
+                    </p>
+                    <button type="submit" disabled={consentMutation.isPending} className="btn-primary">
+                      {consentMutation.isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Redirecting...</> : 'Approve with Microsoft'}
+                    </button>
+                  </div>
+
+                  <div className="text-xs text-gray-400">
+                    <p className="font-medium text-gray-500 mb-1">Permissions requested (read-only where possible):</p>
+                    <ul className="list-disc list-inside space-y-0.5">
+                      <li>User &amp; Group management</li>
+                      <li>Conditional Access policies (read)</li>
+                      <li>Audit logs &amp; directory data (read)</li>
+                      <li>Intune device management</li>
+                    </ul>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+                  <p className="text-sm font-medium text-yellow-800">One-click onboarding not configured</p>
+                  <p className="text-xs text-yellow-600 mt-1">
+                    Set MSP_CLIENT_ID and MSP_CLIENT_SECRET in .env to enable automatic admin consent.
+                    You need a multi-tenant app registration in your MSP Entra ID tenant.
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+
           <div className="flex justify-between pt-4 border-t">
-            {step > 1 ? (
-              <button type="button" onClick={() => setStep(step - 1)} className="btn-secondary">Back</button>
-            ) : <div />}
-            <button type="submit" disabled={mutation.isPending} className="btn-primary">
-              {step < 3 ? 'Continue' : mutation.isPending ? 'Onboarding...' : 'Onboard Tenant'}
-              {step === 3 && !mutation.isPending && <Check className="h-4 w-4" />}
-            </button>
+            {step > 1 ? <button type="button" onClick={() => setStep(1)} className="btn-secondary">Back</button> : <div />}
+            {step === 1 && <button type="submit" className="btn-primary">Continue <Check className="h-4 w-4" /></button>}
           </div>
         </form>
       </div>

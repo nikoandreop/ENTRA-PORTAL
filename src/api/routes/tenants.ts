@@ -9,8 +9,18 @@ import { logger } from '../utils/logger.js';
 import { encrypt, decrypt } from '../../shared/crypto/encryption.js';
 import { DEFAULT_SYNC_INTERVAL_MINUTES, DEFAULT_RETENTION_DAYS } from '../../shared/constants/index.js';
 import { auditFromRequest } from '../services/audit.js';
+import { isConsentConfigured, getAdminConsentUrl, handleAdminConsentCallback } from '../services/tenant-consent.js';
+import { getDb } from '../models/database.js';
 
 export const tenantRouter = Router();
+
+const consentSessions = new Map<string, { name: string; enabledModules: string[]; userId: string; createdAt: number }>();
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, session] of consentSessions) {
+    if (now - session.createdAt > 600_000) consentSessions.delete(key);
+  }
+}, 60_000);
 
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'CHANGE-THIS-32-CHAR-ENCRYPTION-KEY!';
 
@@ -230,4 +240,89 @@ tenantRouter.delete('/:tenantId', authorize('tenants:write'), requireTenantAcces
   } catch (err) {
     next(err);
   }
+});
+
+// Admin consent flow for easy onboarding
+
+tenantRouter.get('/consent/config', authenticate, (_req, res) => {
+  res.json({ success: true, data: { enabled: isConsentConfigured() } });
+});
+
+tenantRouter.post('/consent/start', authenticate, authorize('tenants:onboard'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!isConsentConfigured()) throw new AppError(400, 'CONSENT_NOT_CONFIGURED', 'MSP app registration not configured. Set MSP_CLIENT_ID and MSP_CLIENT_SECRET.');
+
+    const { name, enabledModules } = req.body;
+    if (!name) throw new AppError(400, 'MISSING_NAME', 'Tenant name is required');
+
+    const state = uuidv4();
+    const { url } = await getAdminConsentUrl(state);
+
+    consentSessions.set(state, {
+      name,
+      enabledModules: enabledModules || ['users', 'groups', 'security-alerts'],
+      userId: req.user!.sub,
+      createdAt: Date.now(),
+    });
+
+    res.json({ success: true, data: { consentUrl: url, state } });
+  } catch (err) { next(err); }
+});
+
+tenantRouter.post('/consent/complete', authenticate, authorize('tenants:onboard'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { state, tenant: consentTenantId, admin_consent } = req.body;
+
+    if (!state || !consentTenantId) throw new AppError(400, 'MISSING_PARAMS', 'State and tenant ID required');
+
+    const session = consentSessions.get(state);
+    if (!session) throw new AppError(400, 'INVALID_STATE', 'Invalid or expired consent session');
+    consentSessions.delete(state);
+
+    if (admin_consent !== 'True' && admin_consent !== true) {
+      throw new AppError(400, 'CONSENT_DENIED', 'Admin consent was not granted');
+    }
+
+    const consentResult = await handleAdminConsentCallback(consentTenantId, true);
+
+    const existing = await queryOne('SELECT id FROM tenants WHERE domain = $1 OR entra_directory_id = $2', [consentResult.domain, consentTenantId]);
+    if (existing) throw new AppError(409, 'TENANT_EXISTS', 'This tenant is already onboarded');
+
+    const mspClientId = process.env.MSP_CLIENT_ID || process.env.SSO_CLIENT_ID || '';
+    const mspClientSecret = process.env.MSP_CLIENT_SECRET || process.env.SSO_CLIENT_SECRET || '';
+    const encryptedSecret = encrypt(mspClientSecret, ENCRYPTION_KEY);
+
+    const id = uuidv4();
+    const config = {
+      syncIntervalMinutes: DEFAULT_SYNC_INTERVAL_MINUTES,
+      enabledModules: session.enabledModules,
+      alertThresholds: { maxFailedSignIns: 10, mfaDisabledWarning: true, staleAccountDays: 90, licenseUtilizationPercent: 90 },
+      retentionDays: DEFAULT_RETENTION_DAYS,
+    };
+
+    await getDb().query(
+      `INSERT INTO tenants (id, name, domain, entra_directory_id, client_id, client_secret_encrypted, status, config)
+       VALUES ($1, $2, $3, $4, $5, $6, 'active', $7)`,
+      [id, session.name || consentResult.displayName, consentResult.domain, consentTenantId, mspClientId, encryptedSecret, JSON.stringify(config)],
+    );
+
+    await auditFromRequest(req, 'tenant', 'tenant.onboarded_via_consent', {
+      tenantId: id,
+      targetResources: [id, consentResult.domain],
+      details: { name: consentResult.displayName, domain: consentResult.domain, method: 'admin_consent' },
+    });
+
+    logger.info('Tenant onboarded via admin consent', { tenantId: id, domain: consentResult.domain });
+
+    res.status(201).json({
+      success: true,
+      data: {
+        id,
+        name: session.name || consentResult.displayName,
+        domain: consentResult.domain,
+        entraDirectoryId: consentTenantId,
+        status: 'active',
+      },
+    });
+  } catch (err) { next(err); }
 });
