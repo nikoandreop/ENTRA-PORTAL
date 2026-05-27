@@ -100,9 +100,15 @@ else
   log ".env already exists, keeping current config"
 fi
 
-# Build and start
+# Build and start (DOCKER_BUILDKIT=0 for overlayfs compatibility)
 log "Building Docker images..."
-docker compose -f docker/docker-compose.yml build --quiet
+DOCKER_BUILDKIT=0 docker compose -f docker/docker-compose.yml build --quiet 2>/dev/null || \
+  docker compose -f docker/docker-compose.yml build --quiet 2>/dev/null || {
+    warn "Docker build failed. Your kernel may not support container overlayfs."
+    warn "Use the native installer instead:"
+    warn "  sudo ./scripts/deploy-native.sh"
+    exit 1
+  }
 
 log "Starting services..."
 docker compose -f docker/docker-compose.yml up -d
