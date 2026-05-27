@@ -1,4 +1,6 @@
-FROM node:20-alpine AS builder
+FROM node:20-alpine
+
+RUN apk add --no-cache openssl wget tini
 
 WORKDIR /app
 
@@ -12,27 +14,9 @@ COPY src/shared/ src/shared/
 COPY src/api/ src/api/
 
 RUN npm run build --workspace=src/shared && \
-    npm run build --workspace=src/api
-
-FROM node:20-alpine AS runner
-
-RUN apk add --no-cache openssl wget tini && \
-    addgroup -g 1001 -S entra && \
-    adduser -S entra -u 1001
-
-WORKDIR /app
-
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/src/shared/dist ./src/shared/dist
-COPY --from=builder /app/src/shared/package.json ./src/shared/
-COPY --from=builder /app/src/api/dist ./src/api/dist
-COPY --from=builder /app/src/api/package.json ./src/api/
-COPY --from=builder /app/src/api/node_modules ./src/api/node_modules
-
-RUN mkdir -p /var/log/entra-portal && \
-    chown -R entra:entra /var/log/entra-portal
-
-USER entra
+    npm run build --workspace=src/api && \
+    mkdir -p /var/log/entra-portal && \
+    rm -rf /root/.npm /tmp/*
 
 EXPOSE 3001 3002
 

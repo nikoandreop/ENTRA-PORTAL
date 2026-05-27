@@ -1,4 +1,6 @@
-FROM node:20-alpine AS builder
+FROM node:20-alpine
+
+RUN apk add --no-cache tini
 
 WORKDIR /app
 
@@ -12,24 +14,8 @@ COPY src/shared/ src/shared/
 COPY src/agent/ src/agent/
 
 RUN npm run build --workspace=src/shared && \
-    npm run build --workspace=src/agent
-
-FROM node:20-alpine AS runner
-
-RUN apk add --no-cache tini && \
-    addgroup -g 1001 -S entra && \
-    adduser -S entra -u 1001
-
-WORKDIR /app
-
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/src/shared/dist ./src/shared/dist
-COPY --from=builder /app/src/shared/package.json ./src/shared/
-COPY --from=builder /app/src/agent/dist ./src/agent/dist
-COPY --from=builder /app/src/agent/package.json ./src/agent/
-COPY --from=builder /app/src/agent/node_modules ./src/agent/node_modules
-
-USER entra
+    npm run build --workspace=src/agent && \
+    rm -rf /root/.npm /tmp/*
 
 ENTRYPOINT ["tini", "--"]
 CMD ["node", "src/agent/dist/index.js"]
