@@ -241,6 +241,28 @@ export function OnboardTenantPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Client Secret</label>
                   <input required type="password" value={manualForm.clientSecret} onChange={(e) => setManualForm({ ...manualForm, clientSecret: e.target.value })} className="input-field" />
                 </div>
+
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                  <p className="text-sm font-medium text-blue-800 mb-2">Required API Permissions (Application type)</p>
+                  <p className="text-xs text-blue-600 mb-3">Add these in the app registration under API permissions, then click "Grant admin consent".</p>
+                  <div className="grid grid-cols-1 gap-1 text-xs font-mono text-blue-700">
+                    <div className="font-sans font-medium text-blue-800 mt-1">Core:</div>
+                    <div className="flex justify-between"><span>User.Read.All</span><span className="text-blue-500 font-sans">List/view users</span></div>
+                    <div className="flex justify-between"><span>User.ReadWrite.All</span><span className="text-blue-500 font-sans">Create/disable/delete users</span></div>
+                    <div className="flex justify-between"><span>Group.Read.All</span><span className="text-blue-500 font-sans">List/view groups</span></div>
+                    <div className="flex justify-between"><span>Group.ReadWrite.All</span><span className="text-blue-500 font-sans">Manage group membership</span></div>
+                    <div className="flex justify-between"><span>Directory.Read.All</span><span className="text-blue-500 font-sans">Org info, domains</span></div>
+                    <div className="flex justify-between"><span>Policy.Read.All</span><span className="text-blue-500 font-sans">Conditional access policies</span></div>
+                    <div className="flex justify-between"><span>AuditLog.Read.All</span><span className="text-blue-500 font-sans">Directory audit logs</span></div>
+                    <div className="flex justify-between"><span>Reports.Read.All</span><span className="text-blue-500 font-sans">License usage</span></div>
+                    <div className="flex justify-between"><span>UserAuthenticationMethod.Read.All</span><span className="text-blue-500 font-sans">MFA status</span></div>
+                    <div className="font-sans font-medium text-blue-800 mt-2">Intune:</div>
+                    <div className="flex justify-between"><span>DeviceManagementManagedDevices.Read.All</span><span className="text-blue-500 font-sans">List devices</span></div>
+                    <div className="flex justify-between"><span>DeviceManagementManagedDevices.ReadWrite.All</span><span className="text-blue-500 font-sans">Sync/wipe/retire</span></div>
+                    <div className="flex justify-between"><span>DeviceManagementConfiguration.Read.All</span><span className="text-blue-500 font-sans">Compliance policies</span></div>
+                  </div>
+                </div>
+
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" required checked={manualForm.adminConsent} onChange={(e) => setManualForm({ ...manualForm, adminConsent: e.target.checked })} className="rounded border-gray-300 text-brand-500 focus:ring-brand-500" />
                   I confirm admin consent has been granted for the required Graph API permissions
