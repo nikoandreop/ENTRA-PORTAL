@@ -69,6 +69,7 @@ app.use('/api/tenants/:tenantId/groups', groupRouter);
 app.use('/api/tenants/:tenantId/policies', policyRouter);
 app.use('/api/tenants/:tenantId/alerts', alertRouter);
 app.use('/api/tenants/:tenantId/audit', auditRouter);
+app.use('/api/tenants/_/audit', auditRouter);
 app.use('/api/agents', agentRouter);
 app.use('/api/dashboard', dashboardRouter);
 

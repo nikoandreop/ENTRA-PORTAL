@@ -1,7 +1,7 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/auth';
-import { login } from '@/services/auth';
+import { login, getSsoConfig, startSsoLogin } from '@/services/auth';
 import { Shield } from 'lucide-react';
 
 export function LoginPage() {
@@ -9,8 +9,16 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [ssoLoading, setSsoLoading] = useState(false);
+  const [ssoEnabled, setSsoEnabled] = useState(false);
   const setAuth = useAuthStore((s) => s.setAuth);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    getSsoConfig()
+      .then((config) => setSsoEnabled(config.enabled))
+      .catch(() => {});
+  }, []);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -25,6 +33,20 @@ export function LoginPage() {
       setError(err.response?.data?.error?.message || 'Login failed');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSsoLogin() {
+    setError('');
+    setSsoLoading(true);
+
+    try {
+      const { authorizationUrl, state } = await startSsoLogin();
+      sessionStorage.setItem('sso_state', state);
+      window.location.href = authorizationUrl;
+    } catch (err: any) {
+      setError(err.response?.data?.error?.message || 'Failed to initiate Microsoft sign-in');
+      setSsoLoading(false);
     }
   }
 
@@ -44,6 +66,33 @@ export function LoginPage() {
             <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700 border border-red-200">
               {error}
             </div>
+          )}
+
+          {ssoEnabled && (
+            <>
+              <button
+                onClick={handleSsoLogin}
+                disabled={ssoLoading}
+                className="flex w-full items-center justify-center gap-3 rounded-md border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50"
+              >
+                <svg width="20" height="20" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+                  <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+                  <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+                  <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+                </svg>
+                {ssoLoading ? 'Redirecting to Microsoft...' : 'Sign in with Microsoft'}
+              </button>
+
+              <div className="relative my-6">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-200" />
+                </div>
+                <div className="relative flex justify-center">
+                  <span className="bg-white px-3 text-xs text-gray-400 uppercase">or sign in with email</span>
+                </div>
+              </div>
+            </>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">

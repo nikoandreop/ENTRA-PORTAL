@@ -37,11 +37,14 @@ function createTables(): void {
       id TEXT PRIMARY KEY,
       email TEXT UNIQUE NOT NULL,
       display_name TEXT NOT NULL,
-      password_hash TEXT NOT NULL,
+      password_hash TEXT,
       role TEXT NOT NULL DEFAULT 'viewer',
       tenant_access TEXT NOT NULL DEFAULT '[]',
       mfa_enabled INTEGER NOT NULL DEFAULT 0,
       mfa_secret TEXT,
+      auth_provider TEXT NOT NULL DEFAULT 'local',
+      entra_oid TEXT UNIQUE,
+      entra_tenant_id TEXT,
       last_login TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -165,6 +168,19 @@ function createTables(): void {
       metrics TEXT NOT NULL DEFAULT '{}'
     );
 
+    CREATE TABLE IF NOT EXISTS portal_audit_log (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT,
+      category TEXT NOT NULL,
+      action TEXT NOT NULL,
+      initiated_by TEXT NOT NULL,
+      target_resources TEXT NOT NULL DEFAULT '[]',
+      result TEXT NOT NULL DEFAULT 'success',
+      details TEXT,
+      ip_address TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_entra_users_tenant ON entra_users(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_entra_users_upn ON entra_users(user_principal_name);
     CREATE INDEX IF NOT EXISTS idx_entra_groups_tenant ON entra_groups(tenant_id);
@@ -173,6 +189,11 @@ function createTables(): void {
     CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant ON audit_logs(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_datetime ON audit_logs(activity_date_time);
     CREATE INDEX IF NOT EXISTS idx_agent_connections_tenant ON agent_connections(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_portal_audit_tenant ON portal_audit_log(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_portal_audit_category ON portal_audit_log(category);
+    CREATE INDEX IF NOT EXISTS idx_portal_audit_created ON portal_audit_log(created_at);
+    CREATE INDEX IF NOT EXISTS idx_portal_audit_initiated ON portal_audit_log(initiated_by);
+    CREATE INDEX IF NOT EXISTS idx_dashboard_users_entra_oid ON dashboard_users(entra_oid);
   `);
 }
 

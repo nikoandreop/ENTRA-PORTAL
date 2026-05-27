@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/auth';
 import { Layout } from '@/components/common/Layout';
 import { LoginPage } from '@/components/common/LoginPage';
+import { SsoCallback } from '@/components/common/SsoCallback';
 import { DashboardPage } from '@/components/dashboard/DashboardPage';
 import { TenantListPage } from '@/components/tenants/TenantListPage';
 import { TenantDetailPage } from '@/components/tenants/TenantDetailPage';
@@ -12,6 +13,7 @@ import { GroupListPage } from '@/components/groups/GroupListPage';
 import { PolicyListPage } from '@/components/policies/PolicyListPage';
 import { AlertListPage } from '@/components/alerts/AlertListPage';
 import { AgentListPage } from '@/components/settings/AgentListPage';
+import { AuditTrailPage } from '@/components/common/AuditTrailPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -23,6 +25,7 @@ export function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/auth/callback" element={<SsoCallback />} />
       <Route
         path="/*"
         element={
@@ -40,7 +43,9 @@ export function App() {
         <Route path="tenants/:tenantId/groups" element={<GroupListPage />} />
         <Route path="tenants/:tenantId/policies" element={<PolicyListPage />} />
         <Route path="tenants/:tenantId/alerts" element={<AlertListPage />} />
+        <Route path="tenants/:tenantId/audit" element={<AuditTrailPage />} />
         <Route path="agents" element={<AgentListPage />} />
+        <Route path="audit" element={<AuditTrailPage />} />
       </Route>
     </Routes>
   );

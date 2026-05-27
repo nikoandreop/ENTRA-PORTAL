@@ -8,6 +8,7 @@ import { AppError } from '../middleware/error-handler.js';
 import { logger } from '../utils/logger.js';
 import { encrypt, decrypt } from '../../shared/crypto/encryption.js';
 import { DEFAULT_SYNC_INTERVAL_MINUTES, DEFAULT_RETENTION_DAYS } from '../../shared/constants/index.js';
+import { auditFromRequest } from '../services/audit.js';
 
 export const tenantRouter = Router();
 
@@ -161,6 +162,11 @@ tenantRouter.post('/', authorize('tenants:onboard'), validate(tenantOnboardSchem
       'INSERT INTO tenants (id, name, domain, entra_directory_id, client_id, client_secret_encrypted, status, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(id, data.name, data.domain, data.entraDirectoryId, data.clientId, encryptedSecret, 'onboarding', JSON.stringify(config));
 
+    auditFromRequest(req, 'tenant', 'tenant.onboarded', {
+      tenantId: id,
+      targetResources: [id, data.domain],
+      details: { name: data.name, domain: data.domain, enabledModules: data.enabledModules },
+    });
     logger.info('Tenant onboarded', { tenantId: id, domain: data.domain, by: req.user!.sub });
 
     res.status(201).json({
@@ -196,6 +202,11 @@ tenantRouter.put('/:tenantId', authorize('tenants:write'), requireTenantAccess, 
       db.prepare(`UPDATE tenants SET ${updates.join(', ')} WHERE id = ?`).run(...params);
     }
 
+    auditFromRequest(req, 'tenant', 'tenant.updated', {
+      tenantId: req.params.tenantId,
+      targetResources: [req.params.tenantId],
+      details: { changes: req.body },
+    });
     logger.info('Tenant updated', { tenantId: req.params.tenantId, by: req.user!.sub });
     res.json({ success: true, data: { message: 'Tenant updated' } });
   } catch (err) {
@@ -211,6 +222,10 @@ tenantRouter.delete('/:tenantId', authorize('tenants:write'), requireTenantAcces
 
     db.prepare('UPDATE tenants SET status = \'offboarding\', updated_at = datetime(\'now\') WHERE id = ?').run(req.params.tenantId);
 
+    auditFromRequest(req, 'tenant', 'tenant.offboarding', {
+      tenantId: req.params.tenantId,
+      targetResources: [req.params.tenantId],
+    });
     logger.info('Tenant offboarding initiated', { tenantId: req.params.tenantId, by: req.user!.sub });
     res.json({ success: true, data: { message: 'Tenant offboarding initiated' } });
   } catch (err) {

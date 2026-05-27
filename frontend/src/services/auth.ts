@@ -19,3 +19,18 @@ export async function changePassword(currentPassword: string, newPassword: strin
   const { data } = await api.put('/auth/password', { currentPassword, newPassword });
   return data.data;
 }
+
+export async function getSsoConfig() {
+  const { data } = await api.get('/auth/sso/config');
+  return data.data as { enabled: boolean };
+}
+
+export async function startSsoLogin() {
+  const { data } = await api.get('/auth/sso/authorize');
+  return data.data as { authorizationUrl: string; state: string };
+}
+
+export async function completeSsoLogin(code: string, state: string) {
+  const { data } = await api.post('/auth/sso/callback', { code, state });
+  return data.data;
+}

@@ -8,6 +8,8 @@ import {
   Bell,
   Server,
   Settings,
+  FileText,
+  ClipboardList,
 } from 'lucide-react';
 import { useTenantStore } from '@/store/tenant';
 
@@ -15,6 +17,7 @@ const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Tenants', href: '/tenants', icon: Building2 },
   { name: 'Agents', href: '/agents', icon: Server },
+  { name: 'Audit Trail', href: '/audit', icon: ClipboardList },
 ];
 
 const tenantNavigation = [
@@ -22,6 +25,7 @@ const tenantNavigation = [
   { name: 'Groups', path: 'groups', icon: Users },
   { name: 'Policies', path: 'policies', icon: Shield },
   { name: 'Alerts', path: 'alerts', icon: Bell },
+  { name: 'Audit Trail', path: 'audit', icon: FileText },
 ];
 
 export function Sidebar() {

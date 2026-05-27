@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { getDb } from '../models/database.js';
 import { authenticate, authorize, requireTenantAccess } from '../middleware/auth.js';
 import { AppError } from '../middleware/error-handler.js';
+import { auditFromRequest } from '../services/audit.js';
 
 export const alertRouter = Router({ mergeParams: true });
 
@@ -68,6 +69,11 @@ alertRouter.patch('/:alertId/acknowledge', authorize('alerts:acknowledge'), (req
       'UPDATE security_alerts SET status = \'acknowledged\', acknowledged_at = datetime(\'now\'), acknowledged_by = ? WHERE id = ?'
     ).run(req.user!.sub, req.params.alertId);
 
+    auditFromRequest(req, 'alert', 'alert.acknowledged', {
+      targetResources: [req.params.alertId],
+      details: { alertTitle: alert.title, severity: alert.severity },
+    });
+
     res.json({ success: true, data: { message: 'Alert acknowledged' } });
   } catch (err) {
     next(err);
@@ -83,6 +89,11 @@ alertRouter.patch('/:alertId/resolve', authorize('alerts:acknowledge'), (req: Re
     if (!alert) throw new AppError(404, 'ALERT_NOT_FOUND', 'Alert not found');
 
     db.prepare('UPDATE security_alerts SET status = \'resolved\' WHERE id = ?').run(req.params.alertId);
+
+    auditFromRequest(req, 'alert', 'alert.resolved', {
+      targetResources: [req.params.alertId],
+      details: { alertTitle: alert.title, severity: alert.severity },
+    });
 
     res.json({ success: true, data: { message: 'Alert resolved' } });
   } catch (err) {

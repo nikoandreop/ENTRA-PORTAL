@@ -1,3 +1,5 @@
+export type AuthProvider = 'local' | 'microsoft';
+
 export interface DashboardUser {
   id: string;
   email: string;
@@ -5,6 +7,9 @@ export interface DashboardUser {
   role: DashboardRole;
   tenantAccess: string[];
   mfaEnabled: boolean;
+  authProvider: AuthProvider;
+  entraOid?: string;
+  entraDirectoryId?: string;
   lastLogin: Date | null;
   createdAt: Date;
 }
