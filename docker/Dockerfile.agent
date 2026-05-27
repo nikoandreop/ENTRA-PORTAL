@@ -18,4 +18,4 @@ RUN npm run build --workspace=src/shared && \
     rm -rf /root/.npm /tmp/*
 
 ENTRYPOINT ["tini", "--"]
-CMD ["node", "src/agent/dist/index.js"]
+CMD ["node", "src/agent/dist/agent/index.js"]

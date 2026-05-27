@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/services/api';
 import { cn } from '@/utils/cn';
-import { ArrowLeft, FileText, Search, Filter, CheckCircle, XCircle } from 'lucide-react';
+import { ArrowLeft, FileText, CheckCircle, XCircle } from 'lucide-react';
 
 const CATEGORY_COLORS: Record<string, string> = {
   auth: 'bg-purple-100 text-purple-700',

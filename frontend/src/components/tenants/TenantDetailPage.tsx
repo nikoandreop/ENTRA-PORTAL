@@ -5,7 +5,7 @@ import { getTenant } from '@/services/tenants';
 import { useTenantStore } from '@/store/tenant';
 import { statusColor, formatDate, timeAgo } from '@/utils/formatters';
 import { cn } from '@/utils/cn';
-import { Users, Shield, Bell, FileText, Key, Activity, ArrowLeft, ClipboardList, Monitor } from 'lucide-react';
+import { Users, Shield, Bell, ArrowLeft, ClipboardList, Monitor } from 'lucide-react';
 
 export function TenantDetailPage() {
   const { tenantId } = useParams<{ tenantId: string }>();
