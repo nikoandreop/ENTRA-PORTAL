@@ -79,7 +79,7 @@ else
 fi
 
 # ── 4. Create system user ─────────────────────────────────────────────
-id -u entra-portal &>/dev/null || useradd --system --home "$INSTALL_DIR" --shell /usr/sbin/nologin entra-portal
+id -u entra-portal &>/dev/null || /usr/sbin/useradd --system --home "$INSTALL_DIR" --shell /usr/sbin/nologin entra-portal 2>/dev/null || adduser --system --home "$INSTALL_DIR" --no-create-home --disabled-login entra-portal
 chown -R entra-portal:entra-portal "$INSTALL_DIR"
 
 # ── 5. Generate .env ──────────────────────────────────────────────────
