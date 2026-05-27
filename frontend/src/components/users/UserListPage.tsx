@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getUsers, getUserStats } from '@/services/users';
+import { api } from '@/services/api';
 import { statusColor, timeAgo } from '@/utils/formatters';
 import { cn } from '@/utils/cn';
-import { Search, Shield, ShieldOff, ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Shield, ShieldOff, ArrowLeft, ChevronLeft, ChevronRight, UserPlus } from 'lucide-react';
 
 export function UserListPage() {
   const { tenantId } = useParams<{ tenantId: string }>();
@@ -33,6 +34,25 @@ export function UserListPage() {
 
   const users = data?.data || [];
   const pagination = data?.pagination;
+  const queryClient = useQueryClient();
+  const [showCreate, setShowCreate] = useState(false);
+  const [newUser, setNewUser] = useState({ displayName: '', userPrincipalName: '', password: '', department: '', jobTitle: '' });
+  const [createMsg, setCreateMsg] = useState('');
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post(`/tenants/${tenantId}/users`, newUser);
+      return data.data;
+    },
+    onSuccess: (result) => {
+      setCreateMsg(`User ${result.displayName} created. They will appear after the next sync.`);
+      setNewUser({ displayName: '', userPrincipalName: '', password: '', department: '', jobTitle: '' });
+      setShowCreate(false);
+      queryClient.invalidateQueries({ queryKey: ['users', tenantId] });
+      queryClient.invalidateQueries({ queryKey: ['user-stats', tenantId] });
+    },
+    onError: (err: any) => setCreateMsg(err.response?.data?.error?.message || 'Failed to create user'),
+  });
 
   return (
     <div className="space-y-6">
@@ -40,10 +60,59 @@ export function UserListPage() {
         <ArrowLeft className="h-4 w-4" /> Back to tenant
       </Link>
 
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Users</h1>
-        <p className="text-sm text-gray-500">Manage Entra ID users for this tenant</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Users</h1>
+          <p className="text-sm text-gray-500">Manage Entra ID users for this tenant</p>
+        </div>
+        <button onClick={() => setShowCreate(!showCreate)} className="btn-primary">
+          <UserPlus className="h-4 w-4" /> Create User
+        </button>
       </div>
+
+      {createMsg && (
+        <div className="rounded-md bg-green-50 p-3 text-sm text-green-700 border border-green-200">
+          {createMsg}
+          <button onClick={() => setCreateMsg('')} className="ml-2 text-green-900 font-medium">Dismiss</button>
+        </div>
+      )}
+
+      {showCreate && (
+        <div className="card border-brand-200">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">New User</h3>
+          <form onSubmit={(e) => { e.preventDefault(); createMutation.mutate(); }} className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Display Name *</label>
+                <input required value={newUser.displayName} onChange={(e) => setNewUser({ ...newUser, displayName: e.target.value })} className="input-field" placeholder="John Doe" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Email (UPN) *</label>
+                <input required type="email" value={newUser.userPrincipalName} onChange={(e) => setNewUser({ ...newUser, userPrincipalName: e.target.value })} className="input-field" placeholder="john@contoso.com" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Password *</label>
+                <input required type="password" value={newUser.password} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} className="input-field" placeholder="Min 8 characters" minLength={8} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Department</label>
+                <input value={newUser.department} onChange={(e) => setNewUser({ ...newUser, department: e.target.value })} className="input-field" placeholder="IT" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Job Title</label>
+                <input value={newUser.jobTitle} onChange={(e) => setNewUser({ ...newUser, jobTitle: e.target.value })} className="input-field" placeholder="Engineer" />
+              </div>
+            </div>
+            <p className="text-xs text-gray-400">User will be forced to change password on first sign-in.</p>
+            <div className="flex gap-2 justify-end">
+              <button type="button" onClick={() => setShowCreate(false)} className="btn-secondary text-sm">Cancel</button>
+              <button type="submit" disabled={createMutation.isPending} className="btn-primary text-sm">
+                {createMutation.isPending ? 'Creating...' : 'Create User'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {stats && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

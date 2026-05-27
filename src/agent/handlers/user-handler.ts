@@ -108,6 +108,30 @@ export class UserHandler {
     return mfaStatuses;
   }
 
+  async getSubscribedSkus(): Promise<any[]> {
+    const client = this.graphFactory.getClient();
+    const response = await client.api('/subscribedSkus').get();
+    return response.value;
+  }
+
+  async assignLicense(userId: string, skuId: string): Promise<void> {
+    const client = this.graphFactory.getClient();
+    await client.api(`/users/${userId}/assignLicense`).post({
+      addLicenses: [{ skuId, disabledPlans: [] }],
+      removeLicenses: [],
+    });
+    logger.info('License assigned', { userId, skuId });
+  }
+
+  async removeLicense(userId: string, skuId: string): Promise<void> {
+    const client = this.graphFactory.getClient();
+    await client.api(`/users/${userId}/assignLicense`).post({
+      addLicenses: [],
+      removeLicenses: [skuId],
+    });
+    logger.info('License removed', { userId, skuId });
+  }
+
   private async paginate(request: any): Promise<any[]> {
     const results: any[] = [];
     let response = await request.get();

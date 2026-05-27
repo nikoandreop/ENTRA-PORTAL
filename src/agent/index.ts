@@ -73,6 +73,9 @@ async function start() {
       case 'delete': return userHandler.deleteUser(params.userId);
       case 'resetPassword': return userHandler.resetPassword(params.userId, params.password);
       case 'getMfaStatus': return userHandler.getMfaStatus();
+      case 'getSkus': return userHandler.getSubscribedSkus();
+      case 'assignLicense': return userHandler.assignLicense(params.userId, params.skuId);
+      case 'removeLicense': return userHandler.removeLicense(params.userId, params.skuId);
       default: throw new Error(`Unknown user action: ${action}`);
     }
   });

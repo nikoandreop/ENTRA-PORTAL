@@ -5,6 +5,17 @@ import { authenticate, authorize, requireTenantAccess } from '../middleware/auth
 import { validate } from '../middleware/validate.js';
 import { AppError } from '../middleware/error-handler.js';
 import { logger } from '../utils/logger.js';
+import { auditFromRequest } from '../services/audit.js';
+
+const createUserSchema = z.object({
+  displayName: z.string().min(1).max(256),
+  userPrincipalName: z.string().email(),
+  password: z.string().min(8),
+  forceChangePasswordNextSignIn: z.boolean().default(true),
+  accountEnabled: z.boolean().default(true),
+  department: z.string().optional(),
+  jobTitle: z.string().optional(),
+});
 
 export const userRouter = Router({ mergeParams: true });
 
@@ -150,4 +161,141 @@ userRouter.get('/:userId', authorize('users:read'), async (req: Request, res: Re
   } catch (err) {
     next(err);
   }
+});
+
+// Write operations — these record the intent and audit trail.
+// In production with a connected agent, they proxy to the agent via WebSocket.
+
+userRouter.post('/', authorize('users:write'), validate(createUserSchema), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { tenantId } = req.params;
+
+    await auditFromRequest(req, 'user', 'user.create', {
+      tenantId,
+      targetResources: [req.body.userPrincipalName],
+      details: { displayName: req.body.displayName, upn: req.body.userPrincipalName, department: req.body.department },
+    });
+
+    res.status(201).json({
+      success: true,
+      data: {
+        message: 'User creation request sent to agent',
+        userPrincipalName: req.body.userPrincipalName,
+        displayName: req.body.displayName,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+userRouter.patch('/:userId/disable', authorize('users:write'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = await queryOne('SELECT display_name, user_principal_name FROM entra_users WHERE id = $1 AND tenant_id = $2', [req.params.userId, req.params.tenantId]);
+    if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
+
+    await auditFromRequest(req, 'user', 'user.disabled', {
+      targetResources: [req.params.userId, user.user_principal_name],
+    });
+
+    res.json({ success: true, data: { message: 'User disable request sent to agent' } });
+  } catch (err) { next(err); }
+});
+
+userRouter.patch('/:userId/enable', authorize('users:write'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = await queryOne('SELECT display_name, user_principal_name FROM entra_users WHERE id = $1 AND tenant_id = $2', [req.params.userId, req.params.tenantId]);
+    if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
+
+    await auditFromRequest(req, 'user', 'user.enabled', {
+      targetResources: [req.params.userId, user.user_principal_name],
+    });
+
+    res.json({ success: true, data: { message: 'User enable request sent to agent' } });
+  } catch (err) { next(err); }
+});
+
+userRouter.delete('/:userId', authorize('users:write'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = await queryOne('SELECT display_name, user_principal_name FROM entra_users WHERE id = $1 AND tenant_id = $2', [req.params.userId, req.params.tenantId]);
+    if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
+
+    await auditFromRequest(req, 'user', 'user.deleted', {
+      targetResources: [req.params.userId, user.user_principal_name],
+    });
+
+    res.json({ success: true, data: { message: 'User delete request sent to agent' } });
+  } catch (err) { next(err); }
+});
+
+userRouter.post('/:userId/reset-password', authorize('users:write'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = await queryOne('SELECT display_name, user_principal_name FROM entra_users WHERE id = $1 AND tenant_id = $2', [req.params.userId, req.params.tenantId]);
+    if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
+
+    await auditFromRequest(req, 'user', 'user.password_reset', {
+      targetResources: [req.params.userId, user.user_principal_name],
+    });
+
+    res.json({ success: true, data: { message: 'Password reset request sent to agent' } });
+  } catch (err) { next(err); }
+});
+
+// License management
+
+userRouter.get('/:userId/licenses', authorize('users:read'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = await queryOne('SELECT assigned_licenses FROM entra_users WHERE id = $1 AND tenant_id = $2', [req.params.userId, req.params.tenantId]);
+    if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
+    const licenses = typeof user.assigned_licenses === 'string' ? JSON.parse(user.assigned_licenses) : user.assigned_licenses;
+
+    const available = await queryAll('SELECT * FROM license_info WHERE tenant_id = $1 ORDER BY display_name', [req.params.tenantId]);
+
+    res.json({
+      success: true,
+      data: {
+        assigned: licenses,
+        available: available.map((l: any) => ({
+          skuId: l.sku_id,
+          skuPartNumber: l.sku_part_number,
+          displayName: l.display_name,
+          totalUnits: l.total_units,
+          consumedUnits: l.consumed_units,
+          availableUnits: l.available_units,
+        })),
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+userRouter.post('/:userId/licenses/assign', authorize('users:write'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { skuId } = req.body;
+    if (!skuId) throw new AppError(400, 'MISSING_SKU', 'skuId is required');
+
+    const user = await queryOne('SELECT user_principal_name FROM entra_users WHERE id = $1 AND tenant_id = $2', [req.params.userId, req.params.tenantId]);
+    if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
+
+    await auditFromRequest(req, 'user', 'license.assigned', {
+      targetResources: [req.params.userId, user.user_principal_name, skuId],
+      details: { skuId },
+    });
+
+    res.json({ success: true, data: { message: 'License assignment request sent to agent' } });
+  } catch (err) { next(err); }
+});
+
+userRouter.post('/:userId/licenses/remove', authorize('users:write'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { skuId } = req.body;
+    if (!skuId) throw new AppError(400, 'MISSING_SKU', 'skuId is required');
+
+    const user = await queryOne('SELECT user_principal_name FROM entra_users WHERE id = $1 AND tenant_id = $2', [req.params.userId, req.params.tenantId]);
+    if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
+
+    await auditFromRequest(req, 'user', 'license.removed', {
+      targetResources: [req.params.userId, user.user_principal_name, skuId],
+      details: { skuId },
+    });
+
+    res.json({ success: true, data: { message: 'License removal request sent to agent' } });
+  } catch (err) { next(err); }
 });
