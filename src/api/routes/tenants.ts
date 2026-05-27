@@ -10,6 +10,7 @@ import { encrypt, decrypt } from '../../shared/crypto/encryption.js';
 import { DEFAULT_SYNC_INTERVAL_MINUTES, DEFAULT_RETENTION_DAYS } from '../../shared/constants/index.js';
 import { auditFromRequest } from '../services/audit.js';
 import { isConsentConfigured, getAdminConsentUrl, handleAdminConsentCallback } from '../services/tenant-consent.js';
+import { syncTenant } from '../services/direct-sync.js';
 import { getDb } from '../models/database.js';
 
 export const tenantRouter = Router();
@@ -240,6 +241,22 @@ tenantRouter.delete('/:tenantId', authorize('tenants:write'), requireTenantAcces
   } catch (err) {
     next(err);
   }
+});
+
+// Manual sync - pulls data directly from Graph API without needing an agent
+
+tenantRouter.post('/:tenantId/sync', authenticate, authorize('tenants:write'), requireTenantAccess, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await syncTenant(req.params.tenantId);
+
+    await auditFromRequest(req, 'tenant', 'tenant.synced', {
+      tenantId: req.params.tenantId,
+      targetResources: [req.params.tenantId],
+      details: result,
+    });
+
+    res.json({ success: true, data: { message: 'Sync completed', ...result } });
+  } catch (err) { next(err); }
 });
 
 // Admin consent flow for easy onboarding

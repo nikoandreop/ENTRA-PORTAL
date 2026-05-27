@@ -1,15 +1,18 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getTenant } from '@/services/tenants';
+import { api } from '@/services/api';
 import { useTenantStore } from '@/store/tenant';
 import { statusColor, formatDate, timeAgo } from '@/utils/formatters';
 import { cn } from '@/utils/cn';
-import { Users, Shield, Bell, ArrowLeft, ClipboardList, Monitor } from 'lucide-react';
+import { Users, Shield, Bell, ArrowLeft, ClipboardList, Monitor, RefreshCw, Loader2, Wifi, WifiOff } from 'lucide-react';
 
 export function TenantDetailPage() {
   const { tenantId } = useParams<{ tenantId: string }>();
   const setSelectedTenant = useTenantStore((s) => s.setSelectedTenant);
+  const queryClient = useQueryClient();
+  const [syncMsg, setSyncMsg] = useState('');
 
   useEffect(() => {
     if (tenantId) setSelectedTenant(tenantId);
@@ -19,6 +22,18 @@ export function TenantDetailPage() {
     queryKey: ['tenant', tenantId],
     queryFn: () => getTenant(tenantId!),
     enabled: !!tenantId,
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post(`/tenants/${tenantId}/sync`);
+      return data.data;
+    },
+    onSuccess: (result) => {
+      setSyncMsg(`Synced: ${result.users} users, ${result.groups} groups, ${result.policies} policies, ${result.devices} devices, ${result.licenses} licenses`);
+      queryClient.invalidateQueries({ queryKey: ['tenant', tenantId] });
+    },
+    onError: (err: any) => setSyncMsg(`Sync failed: ${err.response?.data?.error?.message || err.message}`),
   });
 
   if (isLoading) return <div className="text-gray-500">Loading...</div>;
@@ -45,11 +60,28 @@ export function TenantDetailPage() {
             <h1 className="text-2xl font-bold text-gray-900">{tenant.name}</h1>
             <p className="text-sm text-gray-500">{tenant.domain}</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <span className={cn('badge', statusColor(tenant.status))}>{tenant.status}</span>
-            <span className={cn('badge', statusColor(tenant.agentStatus))}>{tenant.agentStatus}</span>
+            <span className={cn('badge flex items-center gap-1', statusColor(tenant.agentStatus))}>
+              {tenant.agentStatus === 'connected' ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+              {tenant.agentStatus}
+            </span>
+            <button
+              onClick={() => { setSyncMsg(''); syncMutation.mutate(); }}
+              disabled={syncMutation.isPending}
+              className="btn-primary text-sm"
+            >
+              {syncMutation.isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Syncing...</> : <><RefreshCw className="h-4 w-4" /> Sync Now</>}
+            </button>
           </div>
         </div>
+
+        {syncMsg && (
+          <div className={cn('mt-3 rounded-md p-3 text-sm border', syncMsg.startsWith('Sync failed') ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200')}>
+            {syncMsg}
+          </div>
+        )}
+
         <div className="mt-4 grid grid-cols-2 gap-4 border-t pt-4 sm:grid-cols-4">
           <div>
             <p className="text-xs text-gray-500">Directory ID</p>
